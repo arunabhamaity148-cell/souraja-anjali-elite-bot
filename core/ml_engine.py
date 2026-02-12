@@ -1,5 +1,4 @@
-
-ml_engine_full = '''"""
+"""
 ML Engine - Fixed for Low Sample Training
 """
 
@@ -341,13 +340,3 @@ class MLEngine:
             self.feature_names,
             self.rf_model.feature_importances_
         ), key=lambda x: x[1], reverse=True))
-'''
-
-print(f"✅ ml_engine.py generated ({len(ml_engine_full)} chars)")
-print("\nKey changes:")
-print("1. len(df) < 100 (was 200)")
-print("2. len(combined) < 50 (was 100)")
-print("3. len(X) < 200 (was 1000)")
-print("4. n_estimators=100 (was 200)")
-print("5. max_depth=10 (was 15)")
-print("6. Added predict_direction, predict_volatility, predict_optimal_hold_time")
