@@ -1,5 +1,5 @@
 """
-Signal Generator - Real Technical Analysis, No Random
+Signal Generator - Real Technical Analysis - FIXED (No Repainting)
 """
 
 import logging
@@ -10,7 +10,7 @@ from core.technical_analysis import TechnicalAnalysis
 logger = logging.getLogger("SIGNAL_GEN")
 
 class EliteSignalGenerator:
-    """Generate signals using pure technical analysis"""
+    """Generate signals using pure technical analysis - FIXED VERSION"""
     
     def __init__(self):
         self.ta = TechnicalAnalysis()
@@ -18,12 +18,16 @@ class EliteSignalGenerator:
     async def generate_signal(self, symbol: str, df: pd.DataFrame) -> Optional[Dict]:
         """
         Generate trading signal based on multiple technical indicators
-        No randomness, pure math
+        NO RANDOMNESS, NO REPAINTING
         """
         try:
+            # FIX #2: Remove forming candle to prevent repainting
             if len(df) < 100:
                 logger.warning(f"{symbol}: Insufficient data ({len(df)} candles)")
                 return None
+            
+            # CRITICAL FIX: Remove last (forming) candle
+            df = df.iloc[:-1].copy()
             
             current_price = float(df['close'].iloc[-1])
             prev_price = float(df['close'].iloc[-2])
@@ -221,7 +225,8 @@ class EliteSignalGenerator:
                     'stoch_k': round(stoch['k'], 2),
                     'volume_ratio': round(volume['ratio'], 2),
                     'structure': structure
-                }
+                },
+                'confidence_score': long_score if direction == 'LONG' else short_score
             }
             
         except Exception as e:
