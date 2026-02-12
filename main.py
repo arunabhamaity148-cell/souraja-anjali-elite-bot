@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.0 FINAL - REAL MONEY READY
-No Mock Data, Real Technical Analysis, Real ML
+ARUNABHA ELITE v8.0 FINAL - PRODUCTION READY
+Real Money Trading Bot
 """
 
 import asyncio
 import logging
 import os
 import sys
-import time
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.signal_generator import EliteSignalGenerator
@@ -38,9 +36,9 @@ logger = logging.getLogger("ARUNABHA_ELITE")
 
 class ArunabhaEliteBot:
     def __init__(self):
-        logger.info("=" * 60)
+        logger.info("=" * 70)
         logger.info("🚀 ARUNABHA ELITE v8.0 FINAL - REAL MONEY MODE")
-        logger.info("=" * 60)
+        logger.info("=" * 70)
         
         # Core components
         self.signal_gen = EliteSignalGenerator()
@@ -53,13 +51,13 @@ class ArunabhaEliteBot:
         self.model_trainer = ModelTrainer()
         self.alerts = HumanStyleAlerts()
         
-        # Exchange manager (NO FALLBACK TO MOCK)
+        # Exchange manager - NO MOCK DATA
         self.exchange_mgr = self._init_exchange_manager()
         if not self.exchange_mgr or not self.exchange_mgr.clients:
             logger.error("❌ NO EXCHANGE CONNECTED - BOT CANNOT START")
-            raise Exception("Exchange connection required")
+            raise Exception("Exchange API keys required")
         
-        # Position sizing
+        # Position sizing with real balance
         self.position_sizer = PositionSizer(self.exchange_mgr)
         
         # 8 pairs
@@ -87,7 +85,7 @@ class ArunabhaEliteBot:
         logger.info(f"✅ Exchanges: {list(self.exchange_mgr.clients.keys())}")
         
     def _init_exchange_manager(self):
-        """Initialize with real API keys only"""
+        """Initialize with real API keys only - NO TESTNET"""
         config = {
             'binance_api_key': os.getenv('BINANCE_API_KEY'),
             'binance_api_secret': os.getenv('BINANCE_API_SECRET'),
@@ -105,7 +103,7 @@ class ArunabhaEliteBot:
         ])
         
         if not has_keys:
-            logger.error("NO API KEYS FOUND")
+            logger.error("NO API KEYS FOUND IN ENVIRONMENT")
             return None
         
         return ExchangeManager(config)
@@ -123,7 +121,7 @@ class ArunabhaEliteBot:
                     self.hourly_trade_count = {}
                     self.last_hour_reset = now.hour
                 
-                # Daily reset
+                # Daily reset at midnight
                 if now.hour == 0 and now.minute < 5:
                     self._reset_daily()
                 
@@ -145,6 +143,9 @@ class ArunabhaEliteBot:
                 await self._trading_session()
                 await asyncio.sleep(30)
                 
+            except KeyboardInterrupt:
+                logger.info("🛑 Bot stopped by user")
+                break
             except Exception as e:
                 logger.error(f"Main error: {e}")
                 await asyncio.sleep(10)
@@ -186,7 +187,6 @@ class ArunabhaEliteBot:
             if not can_trade:
                 continue
             
-            # Process symbol
             success = await self._process_symbol(symbol, settings)
             if success:
                 signals_sent += 1
@@ -195,14 +195,15 @@ class ArunabhaEliteBot:
             await asyncio.sleep(2)
     
     async def _process_symbol(self, symbol: str, settings: dict) -> bool:
-        """Process single symbol"""
+        """Process single symbol with real data"""
         try:
-            # Fetch multi-timeframe data
+            # Fetch multi-timeframe data from REAL exchange
             df_5m = await self.exchange_mgr.get_ohlcv(symbol, '5m', 100)
             df_15m = await self.exchange_mgr.get_ohlcv(symbol, '15m', 100)
             df_1h = await self.exchange_mgr.get_ohlcv(symbol, '1h', 100)
             
             if any(df is None or len(df) < 60 for df in [df_5m, df_15m, df_1h]):
+                logger.debug(f"{symbol}: Insufficient data from exchange")
                 return False
             
             # Check spread
@@ -210,10 +211,10 @@ class ArunabhaEliteBot:
             if ticker:
                 spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
                 if spread > 0.002:  # > 0.2% spread
-                    logger.warning(f"{symbol} spread too high: {spread:.4%}")
+                    logger.warning(f"{symbol}: Spread too high {spread:.4%}")
                     return False
             
-            # Generate signal with real TA
+            # Generate signal with REAL TA
             raw_signal = await self.signal_gen.generate_signal(symbol, df_5m)
             if not raw_signal:
                 return False
@@ -252,7 +253,7 @@ class ArunabhaEliteBot:
             if not tier:
                 return False
             
-            # Calculate position size
+            # Calculate position size with REAL balance
             position = await self.position_sizer.calculate_position_size(
                 symbol, raw_signal['entry'], raw_signal['sl'], tier['tier']
             )
@@ -269,6 +270,7 @@ class ArunabhaEliteBot:
                 'position_size': position['position_size'],
                 'margin_required': position['margin_required'],
                 'risk_amount': position['risk_amount'],
+                'balance': position['balance'],
                 'ml_score': filter_result.get('ml_prediction', {}).get('ensemble_score', 0),
                 'timestamp': get_ist_time().isoformat()
             }
@@ -288,13 +290,13 @@ class ArunabhaEliteBot:
             return False
     
     async def _monitor_position(self, signal: dict):
-        """Monitor position with real price updates"""
+        """Monitor with real price updates"""
         entry_time = get_ist_time()
         tp1_hit = tp2_hit = tp3_hit = False
         
         while True:
             try:
-                # Get real price
+                # Get REAL price from exchange
                 ticker = await self.exchange_mgr.get_ticker(signal['symbol'])
                 current_price = ticker.get('last', 0)
                 
