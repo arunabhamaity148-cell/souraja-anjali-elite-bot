@@ -1,0 +1,12 @@
+python-telegram-bot==20.7
+websockets==12.0
+aiohttp==3.9.1
+python-dotenv==1.0.0
+pandas==2.1.4
+numpy==1.26.2
+requests==2.31.0
+feedparser==6.0.11
+pytz==2023.3
+ccxt==4.2.18
+scikit-learn==1.3.2
+joblib==1.3.2
