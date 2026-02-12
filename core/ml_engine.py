@@ -1,5 +1,5 @@
 """
-ML Engine - Complete Implementation with Real Training
+ML Engine - Complete Implementation with Real Training - FIXED
 """
 
 import os
@@ -9,14 +9,13 @@ import numpy as np
 from typing import Dict, List, Optional
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 import joblib
 
 logger = logging.getLogger("ML_ENGINE")
 
 class MLEngine:
-    """Complete ML engine with training and prediction"""
+    """Complete ML engine with training and prediction - FIXED VERSION"""
     
     def __init__(self, model_path: str = "models/"):
         self.model_path = model_path
@@ -103,8 +102,9 @@ class MLEngine:
         high_low = df['high'] - df['low']
         high_close = np.abs(df['high'] - df['close'].shift())
         low_close = np.abs(df['low'] - df['close'].shift())
-        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        features['atr'] = tr.rolling(14).mean()
+        tr = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = tr.max(axis=1)
+        features['atr'] = true_range.rolling(14).mean()
         features['atr_ratio'] = features['atr'] / df['close']
         
         # Bollinger Bands
@@ -123,7 +123,10 @@ class MLEngine:
         return features.dropna()
     
     def create_target(self, df: pd.DataFrame, lookahead: int = 5) -> pd.Series:
-        """Create target: next 5 candle direction"""
+        """
+        Create target: next 5 candle direction
+        FIX #3: Invalidate last lookahead candles to prevent leakage
+        """
         future_return = df['close'].shift(-lookahead) / df['close'] - 1
         
         target = pd.Series(2, index=df.index)  # 2 = neutral
@@ -132,15 +135,19 @@ class MLEngine:
         target[future_return > 0.005] = 1   # Up
         target[future_return < -0.005] = 0  # Down
         
+        # CRITICAL FIX: Invalidate last lookahead candles
+        # These don't have complete future data yet
+        target.iloc[-lookahead:] = np.nan
+        
         return target
     
     def train(self, historical_data: Dict[str, pd.DataFrame]) -> bool:
         """
-        Train model on historical data
+        Train model on historical data - FIXED (Time-based split)
         """
         try:
             logger.info("=" * 50)
-            logger.info("🎓 TRAINING MODEL")
+            logger.info("🎓 TRAINING MODEL - FIXED")
             logger.info("=" * 50)
             
             all_X = []
@@ -187,10 +194,18 @@ class MLEngine:
                 logger.error(f"Insufficient total samples: {len(X)}")
                 return False
             
-            # Split
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y
-            )
+            # FIX #4: Time-based split (chronological order)
+            # First 80% = training (older data)
+            # Last 20% = testing (recent data)
+            split_idx = int(len(X) * 0.8)
+            
+            X_train = X.iloc[:split_idx]
+            X_test = X.iloc[split_idx:]
+            y_train = y.iloc[:split_idx]
+            y_test = y.iloc[split_idx:]
+            
+            logger.info(f"Train: {len(X_train)} samples (older)")
+            logger.info(f"Test:  {len(X_test)} samples (recent)")
             
             # Scale
             X_train_scaled = self.scaler.fit_transform(X_train)
@@ -204,8 +219,8 @@ class MLEngine:
             y_pred = self.rf_model.predict(X_test_scaled)
             
             accuracy = accuracy_score(y_test, y_pred)
-            precision = precision_score(y_test, y_pred, average='weighted')
-            recall = recall_score(y_test, y_pred, average='weighted')
+            precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+            recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
             
             logger.info("✅ Training complete!")
             logger.info(f"   Accuracy:  {accuracy:.2%}")
