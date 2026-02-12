@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.1 - PRODUCTION READY
-Real Money Trading Bot with Telegram Commands
+ARUNABHA ELITE v8.2 - FIXED TELEGRAM COMMANDS
 """
 
 import asyncio
@@ -26,10 +25,7 @@ from core.technical_analysis import TechnicalAnalysis
 from exchanges.exchange_manager import ExchangeManager
 from alerts.telegram_alerts import HumanStyleAlerts
 from utils.time_utils import is_golden_hour, get_ist_time
-
-# Telegram imports
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler as TGCommandHandler, ContextTypes
+from telegram import Bot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +37,7 @@ logger = logging.getLogger("ARUNABHA_ELITE")
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.1 FINAL - REAL MONEY MODE")
+        logger.info("🚀 ARUNABHA ELITE v8.2 - COMMANDS FIXED")
         logger.info("=" * 70)
         
         # Core components
@@ -55,231 +51,178 @@ class ArunabhaEliteBot:
         self.model_trainer = ModelTrainer()
         self.alerts = HumanStyleAlerts()
         
-        # Exchange manager - NO MOCK DATA
+        # Exchange manager
         self.exchange_mgr = self._init_exchange_manager()
         if not self.exchange_mgr or not self.exchange_mgr.clients:
-            logger.error("❌ NO EXCHANGE CONNECTED - BOT CANNOT START")
             raise Exception("Exchange API keys required")
         
-        # Position sizing with real balance
         self.position_sizer = PositionSizer(self.exchange_mgr)
         
-        # 8 pairs
-        self.symbols = [
-            'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT',
-            'BNBUSDT', 'XRPUSDT', 'LINKUSDT', 'ADAUSDT'
-        ]
+        self.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT',
+                       'BNBUSDT', 'XRPUSDT', 'LINKUSDT', 'ADAUSDT']
         
-        # State
         self.current_regime = None
         self.adaptive_settings = None
         self.last_regime_check = None
         self.last_training = None
         self.hourly_trade_count = {}
         self.last_hour_reset = datetime.now().hour
+        self.last_update_id = 0
         
-        # Stats
         self.daily_stats = {
             'total': 0, 'by_tier': {'TIER_1': 0, 'TIER_2': 0, 'TIER_3': 0},
             'by_regime': {}, 'pnl': 0, 'wins': 0, 'losses': 0
         }
         self.active_positions = {}
         
-        logger.info(f"✅ {len(self.symbols)} pairs configured")
+        # Telegram bot
+        from config import TELEGRAM
+        self.telegram_bot = Bot(token=TELEGRAM['bot_token'])
+        self.chat_id = TELEGRAM['chat_id']
+        
         logger.info(f"✅ Exchanges: {list(self.exchange_mgr.clients.keys())}")
         
     def _init_exchange_manager(self):
-        """Initialize with real API keys only - NO TESTNET"""
         config = {
             'binance_api_key': os.getenv('BINANCE_API_KEY'),
             'binance_api_secret': os.getenv('BINANCE_API_SECRET'),
-            'binance_testnet': False,  # LIVE ONLY
+            'binance_testnet': False,
             'delta_api_key': os.getenv('DELTA_API_KEY'),
             'delta_api_secret': os.getenv('DELTA_API_SECRET'),
             'coindcx_api_key': os.getenv('COINDCX_API_KEY'),
             'coindcx_api_secret': os.getenv('COINDCX_API_SECRET')
         }
-        
-        has_keys = any([
-            config['binance_api_key'],
-            config['delta_api_key'],
-            config['coindcx_api_key']
-        ])
-        
+        has_keys = any([config['binance_api_key'], config['delta_api_key'], config['coindcx_api_key']])
         if not has_keys:
-            logger.error("NO API KEYS FOUND IN ENVIRONMENT")
             return None
-        
         return ExchangeManager(config)
     
-    # ============== TELEGRAM COMMANDS ==============
+    async def check_commands(self):
+        """Check Telegram commands every 5 seconds"""
+        try:
+            updates = await self.telegram_bot.get_updates(offset=self.last_update_id, limit=10)
+            
+            for update in updates:
+                self.last_update_id = update.update_id + 1
+                
+                if not update.message or not update.message.text:
+                    continue
+                
+                text = update.message.text.strip()
+                chat_id = update.message.chat_id
+                
+                if str(chat_id) != str(self.chat_id):
+                    continue
+                
+                if text.startswith('/train'):
+                    await self.cmd_train(chat_id)
+                elif text.startswith('/status'):
+                    await self.cmd_status(chat_id)
+                elif text.startswith('/scan'):
+                    await self.cmd_scan(chat_id)
+                elif text.startswith('/balance'):
+                    await self.cmd_balance(chat_id)
+                elif text.startswith('/help') or text.startswith('/start'):
+                    await self.cmd_help(chat_id)
+                    
+        except Exception as e:
+            logger.error(f"Command error: {e}")
     
-    async def cmd_train(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Manual ML training trigger"""
-        await update.message.reply_text("🎓 ML Training started... eta 5-10 min lagbe")
-        
+    async def cmd_train(self, chat_id):
+        await self.telegram_bot.send_message(chat_id=chat_id, text="🎓 Training started... 5-10 min")
         try:
             success = await self.model_trainer.train_daily(self)
-            if success:
-                await update.message.reply_text("✅ Training complete! Model ready")
-            else:
-                await update.message.reply_text("❌ Training failed. Check logs")
+            msg = "✅ Training complete!" if success else "❌ Training failed"
+            await self.telegram_bot.send_message(chat_id=chat_id, text=msg)
         except Exception as e:
-            logger.error(f"Train command error: {e}")
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ Error: {str(e)}")
     
-    async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Bot status check"""
-        regime_name = self.current_regime.value if self.current_regime else 'Unknown'
-        ml_status = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
-        
-        status = f"""
-🤖 *ARUNABHA ELITE v8.1 Status*
-
-📊 Regime: `{regime_name}`
-📈 Daily Signals: {self.daily_stats['total']}/12
-🏆 Trades: {self.daily_stats.get('wins', 0)}W / {self.daily_stats.get('losses', 0)}L
+    async def cmd_status(self, chat_id):
+        regime = self.current_regime.value if self.current_regime else 'Unknown'
+        ml = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
+        status = f"""🤖 *Status*
+📊 Regime: `{regime}`
+📈 Signals: {self.daily_stats['total']}/12
+🏆 {self.daily_stats.get('wins', 0)}W / {self.daily_stats.get('losses', 0)}L
 💰 PNL: ₹{self.daily_stats.get('pnl', 0):,.2f}
-
-🧠 ML Model: {ml_status}
-⏰ Last Check: {self.last_regime_check.strftime('%H:%M') if self.last_regime_check else 'Never'}
-        """
-        await update.message.reply_text(status, parse_mode='Markdown')
+🧠 ML: {ml}"""
+        await self.telegram_bot.send_message(chat_id=chat_id, text=status, parse_mode='Markdown')
     
-    async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Force immediate market scan"""
-        await update.message.reply_text("🔍 Force scanning all 8 pairs...")
-        
+    async def cmd_scan(self, chat_id):
+        await self.telegram_bot.send_message(chat_id=chat_id, text="🔍 Scanning...")
         if not self.adaptive_settings:
-            await update.message.reply_text("❌ Regime not detected yet. Wait...")
+            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime")
             return
-        
         count = 0
         for symbol in self.symbols:
-            try:
-                success = await self._process_symbol(symbol, self.adaptive_settings)
-                if success:
-                    count += 1
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Scan error {symbol}: {e}")
-        
-        await update.message.reply_text(f"✅ Scan complete. {count} signals found")
+            if await self._process_symbol(symbol, self.adaptive_settings):
+                count += 1
+            await asyncio.sleep(1)
+        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals")
     
-    async def cmd_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check account balance"""
+    async def cmd_balance(self, chat_id):
         try:
             client = self.exchange_mgr.get_primary_client()
             if client:
-                balance = await client.get_balance()
-                usdt = balance.get('USDT', 0)
-                await update.message.reply_text(f"💰 Balance: `{usdt:,.2f} USDT`", parse_mode='Markdown')
-            else:
-                await update.message.reply_text("❌ No exchange client")
+                bal = await client.get_balance()
+                usdt = bal.get('USDT', 0)
+                await self.telegram_bot.send_message(chat_id=chat_id, text=f"💰 `{usdt:,.2f} USDT`", parse_mode='Markdown')
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ {str(e)}")
     
-    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show help"""
-        help_text = """
-🤖 *ARUNABHA ELITE Commands*
-
-/train - ML model train koro
-/status - Bot status dekho
-/scan - Force market scan
-/balance - Account balance
-/help - Ei message
-
-Auto schedule:
-• Regime check: Every 5 min
-• Trading: Golden hours only
-• ML Training: Daily 00:10
-        """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
-    
-    # ============== MAIN LOOP ==============
+    async def cmd_help(self, chat_id):
+        help_text = """🤖 *Commands*
+/train - ML train
+/status - Status
+/scan - Force scan
+/balance - Balance
+/help - Help"""
+        await self.telegram_bot.send_message(chat_id=chat_id, text=help_text, parse_mode='Markdown')
     
     async def run(self):
-        """Main loop with Telegram commands"""
         await self.alerts.send_startup()
+        await self.telegram_bot.send_message(chat_id=self.chat_id, text="✅ Commands: /train /status /scan /balance /help")
         
-        # Setup Telegram commands
-        from config import TELEGRAM
-        application = Application.builder().token(TELEGRAM['bot_token']).build()
-        
-        # Add handlers
-        application.add_handler(TGCommandHandler("train", self.cmd_train))
-        application.add_handler(TGCommandHandler("status", self.cmd_status))
-        application.add_handler(TGCommandHandler("scan", self.cmd_scan))
-        application.add_handler(TGCommandHandler("balance", self.cmd_balance))
-        application.add_handler(TGCommandHandler("help", self.cmd_help))
-        application.add_handler(TGCommandHandler("start", self.cmd_help))
-        
-        # Start bot in background
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        
-        logger.info("✅ Telegram commands active: /train /status /scan /balance /help")
-        
-        # Main trading loop
         while True:
             try:
                 now = get_ist_time()
                 
-                # Reset hourly trade count
+                # Check commands every 5 seconds
+                await self.check_commands()
+                
                 if now.hour != self.last_hour_reset:
                     self.hourly_trade_count = {}
                     self.last_hour_reset = now.hour
                 
-                # Daily reset at midnight
                 if now.hour == 0 and now.minute < 5:
                     self._reset_daily()
                 
-                # Daily training at 00:10
                 if now.hour == 0 and 10 <= now.minute < 15:
                     if not self.last_training or (now - self.last_training).days >= 1:
                         await self.model_trainer.train_daily(self)
                         self.last_training = now
                 
-                # Update regime every 5 min
                 if not self.last_regime_check or (now - self.last_regime_check).seconds >= 300:
                     await self._update_regime()
                 
-                # Trading only in golden hours
                 if not is_golden_hour():
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(5)
                     continue
                 
                 await self._trading_session()
-                await asyncio.sleep(30)
+                await asyncio.sleep(5)
                 
-            except KeyboardInterrupt:
-                logger.info("🛑 Bot stopped by user")
-                await application.stop()
-                break
             except Exception as e:
-                logger.error(f"Main error: {e}")
+                logger.error(f"Error: {e}")
                 await asyncio.sleep(10)
     
     async def _update_regime(self):
-        """Update market regime"""
         self.current_regime = await self.regime_detector.detect_regime()
-        self.adaptive_settings = await self.regime_detector.get_adaptive_settings(
-            self.current_regime
-        )
+        self.adaptive_settings = await self.regime_detector.get_adaptive_settings(self.current_regime)
         self.last_regime_check = get_ist_time()
-        
-        regime_name = self.current_regime.value
-        self.daily_stats['by_regime'][regime_name] = \
-            self.daily_stats['by_regime'].get(regime_name, 0) + 1
-        
-        # Send regime alert on change
-        if len(self.daily_stats['by_regime']) <= 1:
-            await self.alerts.regime_alert(self.current_regime, self.adaptive_settings)
+        self.daily_stats['by_regime'][self.current_regime.value] = self.daily_stats['by_regime'].get(self.current_regime.value, 0) + 1
     
     async def _trading_session(self):
-        """Execute trading session"""
         settings = self.adaptive_settings
         if not settings or settings['strategy'] == 'NO_TRADE':
             return
@@ -288,69 +231,53 @@ Auto schedule:
         signals_sent = 0
         
         for symbol in self.symbols:
-            if signals_sent >= max_signals:
+            if signals_sent >= max_signals or self.daily_stats['total'] >= 12:
                 break
             
-            if self.daily_stats['total'] >= 12:
-                break
-            
-            # Max 3 trades per hour per pair
             if self.hourly_trade_count.get(symbol, 0) >= 3:
                 continue
             
-            # Check risk
-            can_trade, reason = await self.risk_mgr.check_trade_allowed()
+            can_trade, _ = await self.risk_mgr.check_trade_allowed()
             if not can_trade:
                 continue
             
-            success = await self._process_symbol(symbol, settings)
-            if success:
+            if await self._process_symbol(symbol, settings):
                 signals_sent += 1
                 self.hourly_trade_count[symbol] = self.hourly_trade_count.get(symbol, 0) + 1
             
             await asyncio.sleep(2)
     
     async def _process_symbol(self, symbol: str, settings: dict) -> bool:
-        """Process single symbol with real data"""
         try:
-            # Fetch multi-timeframe data from REAL exchange
             df_5m = await self.exchange_mgr.get_ohlcv(symbol, '5m', 100)
             df_15m = await self.exchange_mgr.get_ohlcv(symbol, '15m', 100)
             df_1h = await self.exchange_mgr.get_ohlcv(symbol, '1h', 100)
             
             if any(df is None or len(df) < 60 for df in [df_5m, df_15m, df_1h]):
-                logger.debug(f"{symbol}: Insufficient data from exchange")
                 return False
             
-            # Check spread
             ticker = await self.exchange_mgr.get_ticker(symbol)
             if ticker:
                 spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
-                if spread > 0.002:  # > 0.2% spread
-                    logger.warning(f"{symbol}: Spread too high {spread:.4%}")
+                if spread > 0.002:
                     return False
             
-            # Generate signal with REAL TA
             raw_signal = await self.signal_gen.generate_signal(symbol, df_5m)
             if not raw_signal:
                 return False
             
-            # Check direction bias
             bias = settings.get('direction_bias')
             if bias and ((bias == 'LONG_ONLY' and raw_signal['direction'] != 'LONG') or
                         (bias == 'SHORT_ONLY' and raw_signal['direction'] != 'SHORT')):
                 return False
             
-            # Create features for ML
             features_df = self.feature_eng.create_features(df_5m)
             
-            # Get exchange data
             exchange_data = {
                 'best_prices': await self.exchange_mgr.get_best_price(symbol),
                 'funding_rates': await self.exchange_mgr.get_funding_rates(symbol)
             }
             
-            # Apply 10 filters
             filter_result = await self.filters.apply_all_filters(
                 symbol, raw_signal, self.current_regime, 
                 features_df, df_5m, df_15m, df_1h, exchange_data
@@ -362,21 +289,16 @@ Auto schedule:
             passed = filter_result['passed']
             total = filter_result['total']
             
-            # Determine tier
-            tier = self.tiers.determine_tier_adaptive(
-                passed, total, settings['min_tier']
-            )
+            tier = self.tiers.determine_tier_adaptive(passed, total, settings['min_tier'])
             if not tier:
                 return False
             
-            # Calculate position size with REAL balance
             position = await self.position_sizer.calculate_position_size(
                 symbol, raw_signal['entry'], raw_signal['sl'], tier['tier']
             )
             if not position:
                 return False
             
-            # Final signal
             signal = {
                 **raw_signal,
                 'tier': tier['tier'],
@@ -392,12 +314,10 @@ Auto schedule:
                 'timestamp': get_ist_time().isoformat()
             }
             
-            # Send alert
             await self.alerts.signal_alert(signal)
             self.daily_stats['total'] += 1
             self.daily_stats['by_tier'][tier['tier']] += 1
             
-            # Monitor position
             asyncio.create_task(self._monitor_position(signal))
             
             return True
@@ -407,13 +327,11 @@ Auto schedule:
             return False
     
     async def _monitor_position(self, signal: dict):
-        """Monitor with real price updates"""
         entry_time = get_ist_time()
         tp1_hit = tp2_hit = tp3_hit = False
         
         while True:
             try:
-                # Get REAL price from exchange
                 ticker = await self.exchange_mgr.get_ticker(signal['symbol'])
                 current_price = ticker.get('last', 0)
                 
@@ -421,7 +339,6 @@ Auto schedule:
                     await asyncio.sleep(5)
                     continue
                 
-                # Check TPs
                 if not tp1_hit and self._hit_tp(signal, current_price, 'tp1'):
                     profit = self._calc_profit(signal, current_price)
                     await self.alerts.tp_alert('tp1', signal, profit)
@@ -439,20 +356,17 @@ Auto schedule:
                     self._update_pnl(profit, True)
                     return
                 
-                # Check SL
                 if self._hit_sl(signal, current_price):
                     loss = self._calc_profit(signal, current_price)
                     await self.alerts.sl_alert(signal)
                     self._update_pnl(loss, False)
                     return
                 
-                # Breakeven
                 be = self.risk_mgr.check_breakeven(signal, current_price)
                 if be:
                     await self.alerts.breakeven_alert(be)
                     signal['sl'] = signal['entry']
                 
-                # Timeout
                 if (get_ist_time() - entry_time).seconds > 7200:
                     pnl = self._calc_profit(signal, current_price)
                     await self.alerts.timeout_alert(signal)
