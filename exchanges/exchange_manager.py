@@ -3,6 +3,7 @@ Multi-Exchange Manager - Primary + Fallback
 """
 
 import logging
+import pandas as pd
 from typing import Dict, Optional
 from exchanges.binance_client import BinanceClient
 from exchanges.delta_client import DeltaClient
