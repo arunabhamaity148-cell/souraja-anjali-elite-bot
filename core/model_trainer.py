@@ -1,5 +1,5 @@
 """
-Model Trainer - Daily Retraining
+Model Trainer - Daily Retraining - FIXED (No Data Leakage)
 """
 
 import logging
@@ -12,24 +12,27 @@ from core.ml_engine import MLEngine
 logger = logging.getLogger("TRAINER")
 
 class ModelTrainer:
-    """Handle daily model retraining"""
+    """Handle daily model retraining - FIXED VERSION"""
     
     def __init__(self):
         self.ml_engine = MLEngine()
         self.last_train_time = None
         
     async def train_daily(self, bot_instance):
-        """Train model on last 6 months of data"""
+        """Train model on last 6 months of data - NO FUTURE DATA"""
         try:
             logger.info("=" * 50)
-            logger.info("🎓 DAILY MODEL TRAINING")
+            logger.info("🎓 DAILY MODEL TRAINING - FIXED")
             logger.info("=" * 50)
+            
+            # FIX #1: Use yesterday's date, not today (no future data)
+            end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+            start_date = end_date - timedelta(days=180)  # 6 months
+            
+            logger.info(f"Training period: {start_date.date()} to {end_date.date()}")
             
             # Fetch 6 months of data for all pairs
             historical_data = {}
-            
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=180)  # 6 months
             
             for symbol in bot_instance.symbols:
                 try:
@@ -88,7 +91,7 @@ class ModelTrainer:
             
             # Calculate required candles
             days = (end - start).days
-            candles_needed = days * 24 * 12  # 5-min candles
+            candles_needed = days * 24 * 12  # 5-min candles per day
             
             # Fetch from exchange
             df = await exchange_mgr.get_ohlcv(
@@ -97,8 +100,12 @@ class ModelTrainer:
                 limit=min(candles_needed, 1000)
             )
             
+            # Filter to date range (extra safety)
+            if df is not None and 'timestamp' in df.columns:
+                df = df[df['timestamp'] <= end]
+            
             return df
             
         except Exception as e:
             logger.error(f"Historical data fetch error: {e}")
-            return None
+            return False
