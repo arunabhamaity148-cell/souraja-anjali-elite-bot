@@ -1,65 +1,104 @@
 """
-Auto Model Trainer
+Model Trainer - Daily Retraining
 """
 
-import pandas as pd
-import numpy as np
 import logging
+import asyncio
 from datetime import datetime, timedelta
+from typing import Dict
+import pandas as pd
 from core.ml_engine import MLEngine
-from core.feature_engineering import FeatureEngineer
 
 logger = logging.getLogger("TRAINER")
 
 class ModelTrainer:
+    """Handle daily model retraining"""
+    
     def __init__(self):
         self.ml_engine = MLEngine()
-        self.feature_eng = FeatureEngineer()
+        self.last_train_time = None
         
-    async def prepare_training_data(self, historical_df: pd.DataFrame) -> tuple:
-        """Prepare labeled dataset"""
-        features = self.feature_eng.create_features(historical_df)
-        
-        features['future_return'] = features['close'].shift(-5) / features['close'] - 1
-        features['label'] = np.where(features['future_return'] > 0.005, 1,
-                                   np.where(features['future_return'] < -0.005, 0, 2))
-        
-        features = features[features['label'] != 2]
-        
-        feature_cols = [c for c in features.columns if c not in 
-                       ['open', 'high', 'low', 'close', 'volume', 'timestamp',
-                        'future_return', 'label']]
-        
-        X = features[feature_cols].fillna(0).values
-        y = features['label'].values
-        
-        return X, y, feature_cols
-    
-    async def train_daily(self, data_fetcher):
-        """Daily retraining"""
+    async def train_daily(self, bot_instance):
+        """Train model on last 6 months of data"""
         try:
-            logger.info("🚀 Starting daily model training")
+            logger.info("=" * 50)
+            logger.info("🎓 DAILY MODEL TRAINING")
+            logger.info("=" * 50)
             
-            # Use last 30 days data
-            all_data = []
-            for symbol in ['BTCUSDT', 'ETHUSDT']:
-                df = await data_fetcher.get_ohlcv_data(symbol)
-                if df is not None:
-                    all_data.append(df)
+            # Fetch 6 months of data for all pairs
+            historical_data = {}
             
-            if not all_data:
-                logger.warning("No data for training")
-                return
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=180)  # 6 months
             
-            combined = pd.concat(all_data, ignore_index=True)
+            for symbol in bot_instance.symbols:
+                try:
+                    # Fetch from exchange
+                    df = await self._fetch_historical_data(
+                        bot_instance.exchange_mgr, 
+                        symbol, 
+                        start_date, 
+                        end_date
+                    )
+                    
+                    if df is not None and len(df) > 200:
+                        historical_data[symbol] = df
+                        logger.info(f"✅ {symbol}: {len(df)} candles")
+                    else:
+                        logger.warning(f"⚠️ {symbol}: Insufficient data")
+                    
+                    # Rate limit
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logger.error(f"Fetch error {symbol}: {e}")
+                    continue
             
-            X, y, features = await self.prepare_training_data(combined)
+            if not historical_data:
+                logger.error("❌ No historical data available for training")
+                return False
             
-            if len(X) > 500:
-                self.ml_engine.train(X, y)
-                logger.info(f"✅ Trained on {len(X)} samples")
-            else:
-                logger.warning(f"Insufficient data: {len(X)} samples")
+            # Train model
+            success = self.ml_engine.train(historical_data)
+            
+            if success:
+                self.last_train_time = datetime.now()
+                logger.info("✅ Daily training completed successfully")
                 
+                # Log feature importance
+                importance = self.ml_engine.get_feature_importance()
+                logger.info("Top 5 important features:")
+                for feat, imp in list(importance.items())[:5]:
+                    logger.info(f"  {feat}: {imp:.3f}")
+            else:
+                logger.error("❌ Training failed")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"Training error: {e}")
+            logger.error(f"Daily training error: {e}")
+            return False
+    
+    async def _fetch_historical_data(self, exchange_mgr, symbol: str, 
+                                    start: datetime, end: datetime) -> pd.DataFrame:
+        """Fetch historical OHLCV data"""
+        try:
+            if not exchange_mgr:
+                return None
+            
+            # Calculate required candles
+            days = (end - start).days
+            candles_needed = days * 24 * 12  # 5-min candles
+            
+            # Fetch from exchange
+            df = await exchange_mgr.get_ohlcv(
+                symbol, 
+                timeframe='5m', 
+                limit=min(candles_needed, 1000)
+            )
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Historical data fetch error: {e}")
+            return None
