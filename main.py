@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.0 FINAL - PRODUCTION READY
-Real Money Trading Bot
+ARUNABHA ELITE v8.1 - PRODUCTION READY
+Real Money Trading Bot with Telegram Commands
 """
 
 import asyncio
@@ -27,6 +27,10 @@ from exchanges.exchange_manager import ExchangeManager
 from alerts.telegram_alerts import HumanStyleAlerts
 from utils.time_utils import is_golden_hour, get_ist_time
 
+# Telegram imports
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler as TGCommandHandler, ContextTypes
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
@@ -37,7 +41,7 @@ logger = logging.getLogger("ARUNABHA_ELITE")
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.0 FINAL - REAL MONEY MODE")
+        logger.info("🚀 ARUNABHA ELITE v8.1 FINAL - REAL MONEY MODE")
         logger.info("=" * 70)
         
         # Core components
@@ -108,10 +112,117 @@ class ArunabhaEliteBot:
         
         return ExchangeManager(config)
     
+    # ============== TELEGRAM COMMANDS ==============
+    
+    async def cmd_train(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Manual ML training trigger"""
+        await update.message.reply_text("🎓 ML Training started... eta 5-10 min lagbe")
+        
+        try:
+            success = await self.model_trainer.train_daily(self)
+            if success:
+                await update.message.reply_text("✅ Training complete! Model ready")
+            else:
+                await update.message.reply_text("❌ Training failed. Check logs")
+        except Exception as e:
+            logger.error(f"Train command error: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    
+    async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Bot status check"""
+        regime_name = self.current_regime.value if self.current_regime else 'Unknown'
+        ml_status = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
+        
+        status = f"""
+🤖 *ARUNABHA ELITE v8.1 Status*
+
+📊 Regime: `{regime_name}`
+📈 Daily Signals: {self.daily_stats['total']}/12
+🏆 Trades: {self.daily_stats.get('wins', 0)}W / {self.daily_stats.get('losses', 0)}L
+💰 PNL: ₹{self.daily_stats.get('pnl', 0):,.2f}
+
+🧠 ML Model: {ml_status}
+⏰ Last Check: {self.last_regime_check.strftime('%H:%M') if self.last_regime_check else 'Never'}
+        """
+        await update.message.reply_text(status, parse_mode='Markdown')
+    
+    async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Force immediate market scan"""
+        await update.message.reply_text("🔍 Force scanning all 8 pairs...")
+        
+        if not self.adaptive_settings:
+            await update.message.reply_text("❌ Regime not detected yet. Wait...")
+            return
+        
+        count = 0
+        for symbol in self.symbols:
+            try:
+                success = await self._process_symbol(symbol, self.adaptive_settings)
+                if success:
+                    count += 1
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Scan error {symbol}: {e}")
+        
+        await update.message.reply_text(f"✅ Scan complete. {count} signals found")
+    
+    async def cmd_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Check account balance"""
+        try:
+            client = self.exchange_mgr.get_primary_client()
+            if client:
+                balance = await client.get_balance()
+                usdt = balance.get('USDT', 0)
+                await update.message.reply_text(f"💰 Balance: `{usdt:,.2f} USDT`", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ No exchange client")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show help"""
+        help_text = """
+🤖 *ARUNABHA ELITE Commands*
+
+/train - ML model train koro
+/status - Bot status dekho
+/scan - Force market scan
+/balance - Account balance
+/help - Ei message
+
+Auto schedule:
+• Regime check: Every 5 min
+• Trading: Golden hours only
+• ML Training: Daily 00:10
+        """
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    # ============== MAIN LOOP ==============
+    
     async def run(self):
-        """Main loop"""
+        """Main loop with Telegram commands"""
         await self.alerts.send_startup()
         
+        # Setup Telegram commands
+        from config import TELEGRAM
+        application = Application.builder().token(TELEGRAM['bot_token']).build()
+        
+        # Add handlers
+        application.add_handler(TGCommandHandler("train", self.cmd_train))
+        application.add_handler(TGCommandHandler("status", self.cmd_status))
+        application.add_handler(TGCommandHandler("scan", self.cmd_scan))
+        application.add_handler(TGCommandHandler("balance", self.cmd_balance))
+        application.add_handler(TGCommandHandler("help", self.cmd_help))
+        application.add_handler(TGCommandHandler("start", self.cmd_help))
+        
+        # Start bot in background
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
+        logger.info("✅ Telegram commands active: /train /status /scan /balance /help")
+        
+        # Main trading loop
         while True:
             try:
                 now = get_ist_time()
@@ -145,6 +256,7 @@ class ArunabhaEliteBot:
                 
             except KeyboardInterrupt:
                 logger.info("🛑 Bot stopped by user")
+                await application.stop()
                 break
             except Exception as e:
                 logger.error(f"Main error: {e}")
@@ -161,6 +273,10 @@ class ArunabhaEliteBot:
         regime_name = self.current_regime.value
         self.daily_stats['by_regime'][regime_name] = \
             self.daily_stats['by_regime'].get(regime_name, 0) + 1
+        
+        # Send regime alert on change
+        if len(self.daily_stats['by_regime']) <= 1:
+            await self.alerts.regime_alert(self.current_regime, self.adaptive_settings)
     
     async def _trading_session(self):
         """Execute trading session"""
@@ -272,6 +388,7 @@ class ArunabhaEliteBot:
                 'risk_amount': position['risk_amount'],
                 'balance': position['balance'],
                 'ml_score': filter_result.get('ml_prediction', {}).get('ensemble_score', 0),
+                'regime': self.current_regime.value if self.current_regime else 'UNKNOWN',
                 'timestamp': get_ist_time().isoformat()
             }
             
