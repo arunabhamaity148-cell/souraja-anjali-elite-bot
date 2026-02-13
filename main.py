@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.3 - WEBHOOK VERSION (FIXED IMPORTS)
+ARUNABHA ELITE v8.2 - FIXED TELEGRAM COMMANDS
 """
 
 import asyncio
@@ -9,41 +9,38 @@ import os
 import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from aiohttp import web
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# FIXED IMPORTS - Direct from root folder
-from signal_generator import EliteSignalGenerator
-from filters import FilterManager
-from market_regime import MarketRegimeDetector
-from tier_system import TierManager
-from risk_manager import EliteRiskManager
-from position_sizing import PositionSizer
-from feature_engineering import FeatureEngineer
-from model_trainer import ModelTrainer
-from technical_analysis import TechnicalAnalysis
-from exchange_manager import ExchangeManager
-from telegram_alerts import HumanStyleAlerts
-from time_utils import is_golden_hour, get_ist_time
-from telegram import Bot, Update
+from core.signal_generator import EliteSignalGenerator
+from core.filters import FilterManager
+from core.market_regime import MarketRegimeDetector
+from core.tier_system import TierManager
+from core.risk_manager import EliteRiskManager
+from core.position_sizing import PositionSizer
+from core.feature_engineering import FeatureEngineer
+from core.model_trainer import ModelTrainer
+from core.technical_analysis import TechnicalAnalysis
+from exchanges.exchange_manager import ExchangeManager
+from alerts.telegram_alerts import HumanStyleAlerts
+from utils.time_utils import is_golden_hour, get_ist_time
+from telegram import Bot
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logger = logging.getLogger("ARUNABHA_ELITE")
 
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.3 - WEBHOOK EFFICIENT (FIXED)")
+        logger.info("🚀 ARUNABHA ELITE v8.2 - COMMANDS FIXED")
         logger.info("=" * 70)
         
+        # Core components
         self.signal_gen = EliteSignalGenerator()
         self.filters = FilterManager()
         self.regime_detector = MarketRegimeDetector()
@@ -54,6 +51,7 @@ class ArunabhaEliteBot:
         self.model_trainer = ModelTrainer()
         self.alerts = HumanStyleAlerts()
         
+        # Exchange manager
         self.exchange_mgr = self._init_exchange_manager()
         if not self.exchange_mgr or not self.exchange_mgr.clients:
             raise Exception("Exchange API keys required")
@@ -69,6 +67,7 @@ class ArunabhaEliteBot:
         self.last_training = None
         self.hourly_trade_count = {}
         self.last_hour_reset = datetime.now().hour
+        self.last_update_id = 0
         
         self.daily_stats = {
             'total': 0, 'by_tier': {'TIER_1': 0, 'TIER_2': 0, 'TIER_3': 0},
@@ -76,13 +75,12 @@ class ArunabhaEliteBot:
         }
         self.active_positions = {}
         
+        # Telegram bot
         from config import TELEGRAM
         self.telegram_bot = Bot(token=TELEGRAM['bot_token'])
         self.chat_id = TELEGRAM['chat_id']
-        self.webhook_url = os.getenv('WEBHOOK_URL', '')
         
         logger.info(f"✅ Exchanges: {list(self.exchange_mgr.clients.keys())}")
-        logger.info(f"✅ Webhook URL: {self.webhook_url}")
         
     def _init_exchange_manager(self):
         config = {
@@ -99,62 +97,39 @@ class ArunabhaEliteBot:
             return None
         return ExchangeManager(config)
     
-    async def setup_webhook(self):
-        if not self.webhook_url:
-            logger.error("❌ WEBHOOK_URL not set in environment")
-            return False
+    async def check_commands(self):
+        """Check Telegram commands every 5 seconds"""
         try:
-            await self.telegram_bot.delete_webhook()
-            webhook_path = f"{self.webhook_url}/webhook"
-            await self.telegram_bot.set_webhook(url=webhook_path)
-            logger.info(f"✅ Webhook set: {webhook_path}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Webhook setup failed: {e}")
-            return False
-    
-    async def handle_webhook(self, request):
-        """Handle incoming Telegram webhook"""
-        try:
-            data = await request.json()
-            update = Update.de_json(data, self.telegram_bot)
+            updates = await self.telegram_bot.get_updates(offset=self.last_update_id, limit=10)
             
-            if update.message and update.message.text:
+            for update in updates:
+                self.last_update_id = update.update_id + 1
+                
+                if not update.message or not update.message.text:
+                    continue
+                
                 text = update.message.text.strip()
                 chat_id = update.message.chat_id
                 
-                # Security check
                 if str(chat_id) != str(self.chat_id):
-                    logger.warning(f"Unauthorized access from chat_id: {chat_id}")
-                    return web.Response(status=200)
+                    continue
                 
-                logger.info(f"Command received: {text}")
-                
-                # Route commands
                 if text.startswith('/train'):
-                    asyncio.create_task(self.cmd_train(chat_id))
+                    await self.cmd_train(chat_id)
                 elif text.startswith('/status'):
-                    asyncio.create_task(self.cmd_status(chat_id))
+                    await self.cmd_status(chat_id)
                 elif text.startswith('/scan'):
-                    asyncio.create_task(self.cmd_scan(chat_id))
+                    await self.cmd_scan(chat_id)
                 elif text.startswith('/balance'):
-                    asyncio.create_task(self.cmd_balance(chat_id))
+                    await self.cmd_balance(chat_id)
                 elif text.startswith('/help') or text.startswith('/start'):
-                    asyncio.create_task(self.cmd_help(chat_id))
-                else:
-                    asyncio.create_task(self.telegram_bot.send_message(
-                        chat_id=chat_id, 
-                        text="❌ Unknown command. Use /help"
-                    ))
-            
-            return web.Response(status=200)
+                    await self.cmd_help(chat_id)
+                    
         except Exception as e:
-            logger.error(f"Webhook error: {e}")
-            return web.Response(status=500)
+            logger.error(f"Command error: {e}")
     
     async def cmd_train(self, chat_id):
-        """Manual ML training"""
-        await self.telegram_bot.send_message(chat_id=chat_id, text="🎓 Training started...")
+        await self.telegram_bot.send_message(chat_id=chat_id, text="🎓 Training started... 5-10 min")
         try:
             success = await self.model_trainer.train_daily(self)
             msg = "✅ Training complete!" if success else "❌ Training failed"
@@ -163,33 +138,29 @@ class ArunabhaEliteBot:
             await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ Error: {str(e)}")
     
     async def cmd_status(self, chat_id):
-        """Show bot status"""
         regime = self.current_regime.value if self.current_regime else 'Unknown'
         ml = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
-        status = f"""🤖 *ARUNABHA ELITE v8.3*
+        status = f"""🤖 *Status*
 📊 Regime: `{regime}`
 📈 Signals: {self.daily_stats['total']}/12
 🏆 {self.daily_stats.get('wins', 0)}W / {self.daily_stats.get('losses', 0)}L
 💰 PNL: ₹{self.daily_stats.get('pnl', 0):,.2f}
-🧠 ML: {ml}
-⚡ Webhook: Active"""
+🧠 ML: {ml}"""
         await self.telegram_bot.send_message(chat_id=chat_id, text=status, parse_mode='Markdown')
     
     async def cmd_scan(self, chat_id):
-        """Force market scan"""
         await self.telegram_bot.send_message(chat_id=chat_id, text="🔍 Scanning...")
         if not self.adaptive_settings:
-            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime detected yet")
+            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime")
             return
         count = 0
         for symbol in self.symbols:
             if await self._process_symbol(symbol, self.adaptive_settings):
                 count += 1
             await asyncio.sleep(1)
-        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals found")
+        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals")
     
     async def cmd_balance(self, chat_id):
-        """Show account balance"""
         try:
             client = self.exchange_mgr.get_primary_client()
             if client:
@@ -200,52 +171,24 @@ class ArunabhaEliteBot:
             await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ {str(e)}")
     
     async def cmd_help(self, chat_id):
-        """Show help"""
-        help_text = """🤖 *ARUNABHA ELITE v8.3*
-
-✅ Webhook Active (No idle calls)
-
-Commands:
+        help_text = """🤖 *Commands*
 /train - ML train
 /status - Status
 /scan - Force scan
 /balance - Balance
-/help - Help
-
-Auto:
-• Regime check: 5 min
-• Trading: Golden hours
-• ML Train: Daily 00:10"""
+/help - Help"""
         await self.telegram_bot.send_message(chat_id=chat_id, text=help_text, parse_mode='Markdown')
-
+    
     async def run(self):
         await self.alerts.send_startup()
-        
-        if await self.setup_webhook():
-            await self.telegram_bot.send_message(
-                chat_id=self.chat_id,
-                text="✅ Webhook v8.3 Active!\nNo idle API calls.\nEfficient production mode."
-            )
-        else:
-            await self.telegram_bot.send_message(
-                chat_id=self.chat_id,
-                text="⚠️ Webhook failed. Check WEBHOOK_URL."
-            )
-        
-        app = web.Application()
-        app.router.add_post('/webhook', self.handle_webhook)
-        app.router.add_get('/health', lambda r: web.Response(text='OK'))
-        
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8080)))
-        await site.start()
-        
-        logger.info(f"✅ Server started on port {os.getenv('PORT', 8080)}")
+        await self.telegram_bot.send_message(chat_id=self.chat_id, text="✅ Commands: /train /status /scan /balance /help")
         
         while True:
             try:
                 now = get_ist_time()
+                
+                # Check commands every 5 seconds
+                await self.check_commands()
                 
                 if now.hour != self.last_hour_reset:
                     self.hourly_trade_count = {}
@@ -263,14 +206,14 @@ Auto:
                     await self._update_regime()
                 
                 if not is_golden_hour():
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(5)
                     continue
                 
                 await self._trading_session()
-                await asyncio.sleep(30)
+                await asyncio.sleep(5)
                 
             except Exception as e:
-                logger.error(f"Main error: {e}")
+                logger.error(f"Error: {e}")
                 await asyncio.sleep(10)
     
     async def _update_regime(self):
