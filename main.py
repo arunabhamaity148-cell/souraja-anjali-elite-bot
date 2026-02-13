@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.3 - WEBHOOK VERSION
-Efficient production bot - No idle API calls
+ARUNABHA ELITE v8.3 - WEBHOOK VERSION (FIXED IMPORTS)
 """
 
 import asyncio
@@ -15,18 +14,19 @@ from aiohttp import web
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.signal_generator import EliteSignalGenerator
-from core.filters import FilterManager
-from core.market_regime import MarketRegimeDetector
-from core.tier_system import TierManager
-from core.risk_manager import EliteRiskManager
-from core.position_sizing import PositionSizer
-from core.feature_engineering import FeatureEngineer
-from core.model_trainer import ModelTrainer
-from core.technical_analysis import TechnicalAnalysis
-from exchanges.exchange_manager import ExchangeManager
-from alerts.telegram_alerts import HumanStyleAlerts
-from utils.time_utils import is_golden_hour, get_ist_time
+# FIXED IMPORTS - Direct from root folder
+from signal_generator import EliteSignalGenerator
+from filters import FilterManager
+from market_regime import MarketRegimeDetector
+from tier_system import TierManager
+from risk_manager import EliteRiskManager
+from position_sizing import PositionSizer
+from feature_engineering import FeatureEngineer
+from model_trainer import ModelTrainer
+from technical_analysis import TechnicalAnalysis
+from exchange_manager import ExchangeManager
+from telegram_alerts import HumanStyleAlerts
+from time_utils import is_golden_hour, get_ist_time
 from telegram import Bot, Update
 
 logging.basicConfig(
@@ -41,7 +41,7 @@ logger = logging.getLogger("ARUNABHA_ELITE")
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.3 - WEBHOOK EFFICIENT")
+        logger.info("🚀 ARUNABHA ELITE v8.3 - WEBHOOK EFFICIENT (FIXED)")
         logger.info("=" * 70)
         
         self.signal_gen = EliteSignalGenerator()
@@ -101,7 +101,7 @@ class ArunabhaEliteBot:
     
     async def setup_webhook(self):
         if not self.webhook_url:
-            logger.error("❌ WEBHOOK_URL not set")
+            logger.error("❌ WEBHOOK_URL not set in environment")
             return False
         try:
             await self.telegram_bot.delete_webhook()
@@ -114,6 +114,7 @@ class ArunabhaEliteBot:
             return False
     
     async def handle_webhook(self, request):
+        """Handle incoming Telegram webhook"""
         try:
             data = await request.json()
             update = Update.de_json(data, self.telegram_bot)
@@ -122,9 +123,14 @@ class ArunabhaEliteBot:
                 text = update.message.text.strip()
                 chat_id = update.message.chat_id
                 
+                # Security check
                 if str(chat_id) != str(self.chat_id):
+                    logger.warning(f"Unauthorized access from chat_id: {chat_id}")
                     return web.Response(status=200)
                 
+                logger.info(f"Command received: {text}")
+                
+                # Route commands
                 if text.startswith('/train'):
                     asyncio.create_task(self.cmd_train(chat_id))
                 elif text.startswith('/status'):
@@ -135,6 +141,11 @@ class ArunabhaEliteBot:
                     asyncio.create_task(self.cmd_balance(chat_id))
                 elif text.startswith('/help') or text.startswith('/start'):
                     asyncio.create_task(self.cmd_help(chat_id))
+                else:
+                    asyncio.create_task(self.telegram_bot.send_message(
+                        chat_id=chat_id, 
+                        text="❌ Unknown command. Use /help"
+                    ))
             
             return web.Response(status=200)
         except Exception as e:
@@ -142,6 +153,7 @@ class ArunabhaEliteBot:
             return web.Response(status=500)
     
     async def cmd_train(self, chat_id):
+        """Manual ML training"""
         await self.telegram_bot.send_message(chat_id=chat_id, text="🎓 Training started...")
         try:
             success = await self.model_trainer.train_daily(self)
@@ -151,6 +163,7 @@ class ArunabhaEliteBot:
             await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ Error: {str(e)}")
     
     async def cmd_status(self, chat_id):
+        """Show bot status"""
         regime = self.current_regime.value if self.current_regime else 'Unknown'
         ml = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
         status = f"""🤖 *ARUNABHA ELITE v8.3*
@@ -163,18 +176,20 @@ class ArunabhaEliteBot:
         await self.telegram_bot.send_message(chat_id=chat_id, text=status, parse_mode='Markdown')
     
     async def cmd_scan(self, chat_id):
+        """Force market scan"""
         await self.telegram_bot.send_message(chat_id=chat_id, text="🔍 Scanning...")
         if not self.adaptive_settings:
-            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime")
+            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime detected yet")
             return
         count = 0
         for symbol in self.symbols:
             if await self._process_symbol(symbol, self.adaptive_settings):
                 count += 1
             await asyncio.sleep(1)
-        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals")
+        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals found")
     
     async def cmd_balance(self, chat_id):
+        """Show account balance"""
         try:
             client = self.exchange_mgr.get_primary_client()
             if client:
@@ -185,6 +200,7 @@ class ArunabhaEliteBot:
             await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ {str(e)}")
     
     async def cmd_help(self, chat_id):
+        """Show help"""
         help_text = """🤖 *ARUNABHA ELITE v8.3*
 
 ✅ Webhook Active (No idle calls)
@@ -201,7 +217,7 @@ Auto:
 • Trading: Golden hours
 • ML Train: Daily 00:10"""
         await self.telegram_bot.send_message(chat_id=chat_id, text=help_text, parse_mode='Markdown')
-    
+
     async def run(self):
         await self.alerts.send_startup()
         
