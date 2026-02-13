@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.3 FINAL - WEBHOOK VERSION
-Proper folder structure with core/, exchanges/, utils/, alerts/
+ARUNABHA ELITE v8.3 FINAL - PRODUCTION READY
+Real Money Trading Bot with Detailed Logging
 """
 
 import asyncio
@@ -10,51 +10,37 @@ import os
 import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from aiohttp import web
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Core imports
 from core.signal_generator import EliteSignalGenerator
 from core.filters import FilterManager
-from core.market_regime import MarketRegimeDetector, MarketRegime
+from core.market_regime import MarketRegimeDetector
 from core.tier_system import TierManager
 from core.risk_manager import EliteRiskManager
 from core.position_sizing import PositionSizer
 from core.feature_engineering import FeatureEngineer
 from core.model_trainer import ModelTrainer
 from core.technical_analysis import TechnicalAnalysis
-
-# Exchange imports
 from exchanges.exchange_manager import ExchangeManager
-
-# Alerts imports
 from alerts.telegram_alerts import HumanStyleAlerts
-
-# Utils imports
 from utils.time_utils import is_golden_hour, get_ist_time
-
-# Config imports
-from config import TELEGRAM, TIER_SETTINGS, TRADING
-
-from telegram import Bot, Update
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logger = logging.getLogger("ARUNABHA_ELITE")
 
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.3 FINAL")
+        logger.info("🚀 ARUNABHA ELITE v8.3 FINAL - REAL MONEY MODE")
         logger.info("=" * 70)
-
+        
+        # Core components
         self.signal_gen = EliteSignalGenerator()
         self.filters = FilterManager()
         self.regime_detector = MarketRegimeDetector()
@@ -64,317 +50,266 @@ class ArunabhaEliteBot:
         self.feature_eng = FeatureEngineer()
         self.model_trainer = ModelTrainer()
         self.alerts = HumanStyleAlerts()
-
+        
+        # Exchange manager - NO MOCK DATA
         self.exchange_mgr = self._init_exchange_manager()
         if not self.exchange_mgr or not self.exchange_mgr.clients:
+            logger.error("❌ NO EXCHANGE CONNECTED - BOT CANNOT START")
             raise Exception("Exchange API keys required")
-
+        
+        # Position sizing with real balance
         self.position_sizer = PositionSizer(self.exchange_mgr)
-
-        self.symbols = TRADING['symbols']
-
+        
+        # 8 pairs
+        self.symbols = [
+            'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT',
+            'BNBUSDT', 'XRPUSDT', 'LINKUSDT', 'ADAUSDT'
+        ]
+        
+        # State
         self.current_regime = None
         self.adaptive_settings = None
         self.last_regime_check = None
         self.last_training = None
         self.hourly_trade_count = {}
         self.last_hour_reset = datetime.now().hour
-
+        
+        # Stats
         self.daily_stats = {
             'total': 0, 'by_tier': {'TIER_1': 0, 'TIER_2': 0, 'TIER_3': 0},
             'by_regime': {}, 'pnl': 0, 'wins': 0, 'losses': 0
         }
         self.active_positions = {}
-
-        self.telegram_bot = Bot(token=TELEGRAM['bot_token'])
-        self.chat_id = TELEGRAM['chat_id']
-        self.webhook_url = os.getenv('WEBHOOK_URL', '')
-
+        
+        logger.info(f"✅ {len(self.symbols)} pairs configured")
         logger.info(f"✅ Exchanges: {list(self.exchange_mgr.clients.keys())}")
-        logger.info(f"✅ Webhook URL: {self.webhook_url}")
-
+        
     def _init_exchange_manager(self):
+        """Initialize with real API keys only - NO TESTNET"""
         config = {
             'binance_api_key': os.getenv('BINANCE_API_KEY'),
             'binance_api_secret': os.getenv('BINANCE_API_SECRET'),
-            'binance_testnet': False,
+            'binance_testnet': False,  # LIVE ONLY
             'delta_api_key': os.getenv('DELTA_API_KEY'),
             'delta_api_secret': os.getenv('DELTA_API_SECRET'),
             'coindcx_api_key': os.getenv('COINDCX_API_KEY'),
             'coindcx_api_secret': os.getenv('COINDCX_API_SECRET')
         }
-        has_keys = any([config['binance_api_key'], config['delta_api_key'], config['coindcx_api_key']])
+        
+        has_keys = any([
+            config['binance_api_key'],
+            config['delta_api_key'],
+            config['coindcx_api_key']
+        ])
+        
         if not has_keys:
+            logger.error("NO API KEYS FOUND IN ENVIRONMENT")
             return None
+        
         return ExchangeManager(config)
-
-    async def setup_webhook(self):
-        if not self.webhook_url:
-            logger.error("❌ WEBHOOK_URL not set")
-            return False
-        try:
-            await self.telegram_bot.delete_webhook()
-            webhook_path = f"{self.webhook_url}/webhook"
-            await self.telegram_bot.set_webhook(url=webhook_path)
-            logger.info(f"✅ Webhook set: {webhook_path}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Webhook setup failed: {e}")
-            return False
-
-    async def handle_webhook(self, request):
-        try:
-            data = await request.json()
-            update = Update.de_json(data, self.telegram_bot)
-
-            if update.message and update.message.text:
-                text = update.message.text.strip()
-                chat_id = update.message.chat_id
-
-                if str(chat_id) != str(self.chat_id):
-                    return web.Response(status=200)
-
-                if text.startswith('/train'):
-                    asyncio.create_task(self.cmd_train(chat_id))
-                elif text.startswith('/status'):
-                    asyncio.create_task(self.cmd_status(chat_id))
-                elif text.startswith('/scan'):
-                    asyncio.create_task(self.cmd_scan(chat_id))
-                elif text.startswith('/balance'):
-                    asyncio.create_task(self.cmd_balance(chat_id))
-                elif text.startswith('/help') or text.startswith('/start'):
-                    asyncio.create_task(self.cmd_help(chat_id))
-
-            return web.Response(status=200)
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
-            return web.Response(status=500)
-
-    async def cmd_train(self, chat_id):
-        await self.telegram_bot.send_message(chat_id=chat_id, text="🎓 Training started...")
-        try:
-            success = await self.model_trainer.train_daily(self)
-            msg = "✅ Training complete!" if success else "❌ Training failed"
-            await self.telegram_bot.send_message(chat_id=chat_id, text=msg)
-        except Exception as e:
-            await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ Error: {str(e)}")
-
-    async def cmd_status(self, chat_id):
-        regime = self.current_regime.value if self.current_regime else 'Unknown'
-        ml = '✅ Trained' if self.model_trainer.ml_engine.is_trained else '❌ Untrained'
-        status = f"""🤖 *ARUNABHA ELITE v8.3*
-📊 Regime: `{regime}`
-📈 Signals: {self.daily_stats['total']}/12
-🏆 {self.daily_stats.get('wins', 0)}W / {self.daily_stats.get('losses', 0)}L
-💰 PNL: ₹{self.daily_stats.get('pnl', 0):,.2f}
-🧠 ML: {ml}
-⚡ Webhook: Active"""
-        await self.telegram_bot.send_message(chat_id=chat_id, text=status, parse_mode='Markdown')
-
-    async def cmd_scan(self, chat_id):
-        await self.telegram_bot.send_message(chat_id=chat_id, text="🔍 Scanning...")
-        if not self.adaptive_settings:
-            await self.telegram_bot.send_message(chat_id=chat_id, text="❌ No regime")
-            return
-        count = 0
-        for symbol in self.symbols:
-            if await self._process_symbol(symbol, self.adaptive_settings):
-                count += 1
-            await asyncio.sleep(1)
-        await self.telegram_bot.send_message(chat_id=chat_id, text=f"✅ {count} signals")
-
-    async def cmd_balance(self, chat_id):
-        try:
-            client = self.exchange_mgr.get_primary_client()
-            if client:
-                bal = await client.get_balance()
-                usdt = bal.get('USDT', 0)
-                await self.telegram_bot.send_message(chat_id=chat_id, text=f"💰 `{usdt:,.2f} USDT`", parse_mode='Markdown')
-        except Exception as e:
-            await self.telegram_bot.send_message(chat_id=chat_id, text=f"❌ {str(e)}")
-
-    async def cmd_help(self, chat_id):
-        help_text = """🤖 *ARUNABHA ELITE v8.3*
-
-✅ Webhook Active (No idle calls)
-
-Commands:
-/train - ML train
-/status - Status
-/scan - Force scan
-/balance - Balance
-/help - Help
-
-Auto:
-• Regime check: 5 min
-• Trading: Golden hours
-• ML Train: Daily 00:10"""
-        await self.telegram_bot.send_message(chat_id=chat_id, text=help_text, parse_mode='Markdown')
-
+    
     async def run(self):
+        """Main loop"""
         await self.alerts.send_startup()
-
-        if await self.setup_webhook():
-            await self.telegram_bot.send_message(
-                chat_id=self.chat_id,
-                text="✅ Webhook v8.3 Active!\nNo idle API calls.\nEfficient production mode."
-            )
-        else:
-            await self.telegram_bot.send_message(
-                chat_id=self.chat_id,
-                text="⚠️ Webhook failed. Check WEBHOOK_URL."
-            )
-
-        app = web.Application()
-        app.router.add_post('/webhook', self.handle_webhook)
-        app.router.add_get('/health', lambda r: web.Response(text='OK'))
-
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8080)))
-        await site.start()
-
-        logger.info(f"✅ Server started on port {os.getenv('PORT', 8080)}")
-
+        
         while True:
             try:
                 now = get_ist_time()
-
+                
+                # Reset hourly trade count
                 if now.hour != self.last_hour_reset:
                     self.hourly_trade_count = {}
                     self.last_hour_reset = now.hour
-
+                    logger.info(f"⏰ Hourly reset at {now.strftime('%H:%M')}")
+                
+                # Daily reset at midnight
                 if now.hour == 0 and now.minute < 5:
                     self._reset_daily()
-
+                
+                # Daily training at 00:10
                 if now.hour == 0 and 10 <= now.minute < 15:
                     if not self.last_training or (now - self.last_training).days >= 1:
                         await self.model_trainer.train_daily(self)
                         self.last_training = now
-
+                
+                # Update regime every 5 min
                 if not self.last_regime_check or (now - self.last_regime_check).seconds >= 300:
                     await self._update_regime()
-
+                
+                # Trading only in golden hours
                 if not is_golden_hour():
+                    logger.debug(f"⏰ Outside golden hours - waiting... ({now.strftime('%H:%M')})")
                     await asyncio.sleep(60)
                     continue
-
+                
                 await self._trading_session()
                 await asyncio.sleep(30)
-
+                
+            except KeyboardInterrupt:
+                logger.info("🛑 Bot stopped by user")
+                break
             except Exception as e:
                 logger.error(f"Main error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 await asyncio.sleep(10)
-
+    
     async def _update_regime(self):
+        """Update market regime"""
         self.current_regime = await self.regime_detector.detect_regime()
-        self.adaptive_settings = await self.regime_detector.get_adaptive_settings(self.current_regime)
+        self.adaptive_settings = await self.regime_detector.get_adaptive_settings(
+            self.current_regime
+        )
         self.last_regime_check = get_ist_time()
-        self.daily_stats['by_regime'][self.current_regime.value] = self.daily_stats['by_regime'].get(self.current_regime.value, 0) + 1
-
+        
+        regime_name = self.current_regime.value
+        self.daily_stats['by_regime'][regime_name] = \
+            self.daily_stats['by_regime'].get(regime_name, 0) + 1
+        
+        logger.info(f"📊 Regime: {regime_name}")
+    
     async def _trading_session(self):
+        """Execute trading session with detailed logging"""
         settings = self.adaptive_settings
+        
+        # ✅ DETAILED SESSION LOGGING
+        logger.info("=" * 70)
+        logger.info(f"🎯 TRADING SESSION START")
+        logger.info(f"   Time: {get_ist_time().strftime('%H:%M:%S IST')}")
+        logger.info(f"   Regime: {self.current_regime.value if self.current_regime else 'Unknown'}")
+        logger.info(f"   Strategy: {settings.get('strategy') if settings else 'None'}")
+        logger.info(f"   Max Signals: {settings.get('max_signals') if settings else 0}")
+        logger.info(f"   Min Tier: {settings.get('min_tier') if settings else 'None'}")
+        logger.info(f"   Enabled Filters: {len(settings.get('enabled_filters', []))} filters")
+        logger.info(f"   Daily Count: {self.daily_stats['total']}/12")
+        logger.info(f"   Golden Hour: {'YES ✅' if is_golden_hour() else 'NO ❌'}")
+        logger.info("=" * 70)
+        
         if not settings or settings['strategy'] == 'NO_TRADE':
+            logger.warning("⚠️ Trading SKIPPED - NO_TRADE strategy active")
             return
-
+        
         max_signals = settings['max_signals']
         signals_sent = 0
-
+        
         for symbol in self.symbols:
-            if signals_sent >= max_signals or self.daily_stats['total'] >= 12:
+            if signals_sent >= max_signals:
+                logger.info(f"✋ Max signals reached ({signals_sent}/{max_signals})")
                 break
-
+            
+            if self.daily_stats['total'] >= 12:
+                logger.info(f"✋ Daily limit reached (12/12)")
+                break
+            
+            # Max 3 trades per hour per pair
             if self.hourly_trade_count.get(symbol, 0) >= 3:
+                logger.debug(f"   ⏭️ {symbol}: Hourly limit reached (3/3)")
                 continue
-
-            can_trade, _ = await self.risk_mgr.check_trade_allowed()
+            
+            # Check risk
+            can_trade, reason = await self.risk_mgr.check_trade_allowed()
             if not can_trade:
+                logger.warning(f"   ⚠️ Risk check failed: {reason}")
                 continue
-
-            if await self._process_symbol(symbol, settings):
+            
+            success = await self._process_symbol(symbol, settings)
+            if success:
                 signals_sent += 1
                 self.hourly_trade_count[symbol] = self.hourly_trade_count.get(symbol, 0) + 1
-
+            
             await asyncio.sleep(2)
-
+        
+        logger.info(f"📊 Session complete: {signals_sent} signals sent this round")
+    
     async def _process_symbol(self, symbol: str, settings: dict) -> bool:
+        """Process single symbol with real data and detailed logging"""
         try:
+            logger.info(f"🔍 Processing {symbol}...")
+            
+            # Fetch multi-timeframe data from REAL exchange
             df_5m = await self.exchange_mgr.get_ohlcv(symbol, '5m', 100)
             df_15m = await self.exchange_mgr.get_ohlcv(symbol, '15m', 100)
             df_1h = await self.exchange_mgr.get_ohlcv(symbol, '1h', 100)
-
-            # FIX: Check if any df is None
-            if df_5m is None or df_15m is None or df_1h is None:
-                logger.warning(f"{symbol}: OHLCV data is None")
+            
+            if any(df is None or len(df) < 60 for df in [df_5m, df_15m, df_1h]):
+                logger.debug(f"   ❌ {symbol}: Insufficient data from exchange")
                 return False
-
-            # FIX: Check if empty or too few rows
-            if len(df_5m) < 60 or len(df_15m) < 60 or len(df_1h) < 60:
-                logger.warning(f"{symbol}: Insufficient data")
-                return False
-
-            # FIX: Check for NaN/None values in close price
-            if df_5m['close'].isna().any() or df_15m['close'].isna().any() or df_1h['close'].isna().any():
-                logger.warning(f"{symbol}: NaN values in data")
-                return False
-
+            
+            # Check spread
             ticker = await self.exchange_mgr.get_ticker(symbol)
-
-            # FIX: Check ticker data
-            if ticker is None:
-                logger.warning(f"{symbol}: Ticker is None")
-                return False
-
-            if ticker.get('last') is None or ticker.get('bid') is None or ticker.get('ask') is None:
-                logger.warning(f"{symbol}: Ticker missing price data")
-                return False
-
-            spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
-            if spread > 0.002:
-                return False
-
+            if ticker:
+                spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
+                if spread > 0.002:  # > 0.2% spread
+                    logger.debug(f"   ❌ {symbol}: Spread too high {spread:.4%}")
+                    return False
+            
+            # Generate signal with REAL TA
             raw_signal = await self.signal_gen.generate_signal(symbol, df_5m)
+            
             if not raw_signal:
+                logger.debug(f"   ❌ {symbol}: No technical signal generated")
                 return False
-
+            else:
+                logger.info(f"   ✅ {symbol}: RAW Signal {raw_signal['direction']} @ {raw_signal['entry']}")
+                logger.debug(f"      Score: {raw_signal['score']}, RR: {raw_signal['rr_ratio']}")
+            
+            # Check direction bias
             bias = settings.get('direction_bias')
             if bias and ((bias == 'LONG_ONLY' and raw_signal['direction'] != 'LONG') or
                         (bias == 'SHORT_ONLY' and raw_signal['direction'] != 'SHORT')):
+                logger.debug(f"   ❌ {symbol}: Direction bias mismatch (need {bias})")
                 return False
-
+            
+            # Create features for ML
             features_df = self.feature_eng.create_features(df_5m)
-
-            # FIX: Check if features_df is None or empty
-            if features_df is None or len(features_df) < 60:
-                logger.warning(f"{symbol}: Features insufficient")
-                return False
-
+            
+            # Get exchange data
             exchange_data = {
                 'best_prices': await self.exchange_mgr.get_best_price(symbol),
                 'funding_rates': await self.exchange_mgr.get_funding_rates(symbol)
             }
-
+            
+            # Apply 10 filters
             filter_result = await self.filters.apply_all_filters(
                 symbol, raw_signal, self.current_regime, 
                 features_df, df_5m, df_15m, df_1h, exchange_data
             )
-
+            
             if filter_result.get('blocked'):
+                logger.warning(f"   ⛔ {symbol}: BLOCKED by filters")
                 return False
-
+            
             passed = filter_result['passed']
             total = filter_result['total']
-
-            tier = self.tiers.determine_tier_adaptive(passed, total, settings['min_tier'])
+            
+            logger.info(f"   📊 {symbol}: Filters {passed}/{total} passed")
+            
+            # Debug: Show individual filter results
+            if logger.level <= logging.DEBUG:
+                for fname, fresult in filter_result.get('details', {}).items():
+                    logger.debug(f"      {fname}: {'✅ PASS' if fresult else '❌ FAIL'}")
+            
+            # Determine tier
+            tier = self.tiers.determine_tier_adaptive(
+                passed, total, settings['min_tier']
+            )
+            
             if not tier:
+                logger.warning(f"   ❌ {symbol}: Did not meet tier requirement (min: {settings['min_tier']}, got {passed}/{total})")
                 return False
-
+            else:
+                logger.info(f"   🏆 {symbol}: {tier['tier']} assigned (confidence: {tier['confidence']}%)")
+            
+            # Calculate position size with REAL balance
             position = await self.position_sizer.calculate_position_size(
                 symbol, raw_signal['entry'], raw_signal['sl'], tier['tier']
             )
+            
             if not position:
+                logger.warning(f"   ❌ {symbol}: Position sizing failed")
                 return False
-
+            
+            # Final signal
             signal = {
                 **raw_signal,
                 'tier': tier['tier'],
@@ -386,107 +321,134 @@ Auto:
                 'risk_amount': position['risk_amount'],
                 'balance': position['balance'],
                 'ml_score': filter_result.get('ml_prediction', {}).get('ensemble_score', 0),
-                'regime': self.current_regime.value if self.current_regime else 'UNKNOWN',
                 'timestamp': get_ist_time().isoformat()
             }
-
+            
+            # Send alert
             await self.alerts.signal_alert(signal)
             self.daily_stats['total'] += 1
             self.daily_stats['by_tier'][tier['tier']] += 1
-
+            
+            # ✅ SUCCESS LOG
+            logger.info("=" * 70)
+            logger.info(f"✅ SIGNAL SENT: {symbol} {signal['direction']}")
+            logger.info(f"   Entry: {signal['entry']}, SL: {signal['sl']}, TP1: {signal['tp1']}")
+            logger.info(f"   TP2: {signal['tp2']}, TP3: {signal['tp3']}")
+            logger.info(f"   Tier: {signal['tier']}, Confidence: {signal['confidence']}%")
+            logger.info(f"   Filters: {passed}/{total}, RR: {signal['rr_ratio']}")
+            logger.info(f"   Position: {signal['position_size']}, Risk: ₹{signal['risk_amount']}")
+            logger.info(f"   Balance: ₹{signal['balance']}, Margin: ₹{signal['margin_required']}")
+            logger.info("=" * 70)
+            
+            # Monitor position
             asyncio.create_task(self._monitor_position(signal))
-
+            
             return True
-
+            
         except Exception as e:
-            logger.error(f"Process error {symbol}: {e}")
+            logger.error(f"   ❌ {symbol}: Processing error - {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
-
+    
     async def _monitor_position(self, signal: dict):
+        """Monitor with real price updates"""
         entry_time = get_ist_time()
         tp1_hit = tp2_hit = tp3_hit = False
-
+        
+        logger.info(f"👁️ Monitoring {signal['symbol']} position...")
+        
         while True:
             try:
+                # Get REAL price from exchange
                 ticker = await self.exchange_mgr.get_ticker(signal['symbol'])
-                
-                # FIX: Check ticker is not None
-                if ticker is None:
-                    await asyncio.sleep(5)
-                    continue
-                
                 current_price = ticker.get('last', 0)
-
+                
                 if current_price == 0:
                     await asyncio.sleep(5)
                     continue
-
+                
+                # Check TPs
                 if not tp1_hit and self._hit_tp(signal, current_price, 'tp1'):
                     profit = self._calc_profit(signal, current_price)
                     await self.alerts.tp_alert('tp1', signal, profit)
                     tp1_hit = True
                     self._update_pnl(profit, True)
-
+                    logger.info(f"✅ {signal['symbol']}: TP1 HIT! Profit: ₹{profit}")
+                
                 if tp1_hit and not tp2_hit and self._hit_tp(signal, current_price, 'tp2'):
                     profit = self._calc_profit(signal, current_price)
                     await self.alerts.tp_alert('tp2', signal, profit)
                     tp2_hit = True
-
+                    logger.info(f"✅ {signal['symbol']}: TP2 HIT! Profit: ₹{profit}")
+                
                 if tp2_hit and not tp3_hit and self._hit_tp(signal, current_price, 'tp3'):
                     profit = self._calc_profit(signal, current_price)
                     await self.alerts.tp_alert('tp3', signal, profit)
                     self._update_pnl(profit, True)
+                    logger.info(f"✅ {signal['symbol']}: TP3 HIT! Total Profit: ₹{profit}")
                     return
-
+                
+                # Check SL
                 if self._hit_sl(signal, current_price):
                     loss = self._calc_profit(signal, current_price)
                     await self.alerts.sl_alert(signal)
                     self._update_pnl(loss, False)
+                    logger.warning(f"❌ {signal['symbol']}: SL HIT. Loss: ₹{loss}")
                     return
-
+                
+                # Breakeven
                 be = self.risk_mgr.check_breakeven(signal, current_price)
                 if be:
                     await self.alerts.breakeven_alert(be)
                     signal['sl'] = signal['entry']
-
+                    logger.info(f"🔒 {signal['symbol']}: Moved to BREAKEVEN")
+                
+                # Timeout (2 hours)
                 if (get_ist_time() - entry_time).seconds > 7200:
                     pnl = self._calc_profit(signal, current_price)
                     await self.alerts.timeout_alert(signal)
                     self._update_pnl(pnl, pnl > 0)
+                    logger.info(f"⏱️ {signal['symbol']}: TIMEOUT. PnL: ₹{pnl}")
                     return
-
+                
                 await asyncio.sleep(3)
-
+                
             except Exception as e:
                 logger.error(f"Monitor error: {e}")
                 await asyncio.sleep(5)
-
+    
     def _hit_tp(self, signal, price, tp):
-        # FIX: Check if tp key exists
-        if tp not in signal:
-            return False
         return (signal['direction'] == 'LONG' and price >= signal[tp]) or \
                (signal['direction'] == 'SHORT' and price <= signal[tp])
-
+    
     def _hit_sl(self, signal, price):
         return (signal['direction'] == 'LONG' and price <= signal['sl']) or \
                (signal['direction'] == 'SHORT' and price >= signal['sl'])
-
+    
     def _calc_profit(self, signal, current_price):
         diff = current_price - signal['entry']
         if signal['direction'] == 'SHORT':
             diff = -diff
         qty = signal.get('position_size', 0)
         return round(diff * qty, 2)
-
+    
     def _update_pnl(self, pnl: float, is_win: bool):
         self.daily_stats['pnl'] += pnl
         if is_win:
             self.daily_stats['wins'] += 1
         else:
             self.daily_stats['losses'] += 1
-
+    
     def _reset_daily(self):
+        logger.info("=" * 70)
+        logger.info("🌅 DAILY RESET - New Trading Day")
+        logger.info(f"   Yesterday's Stats:")
+        logger.info(f"   Total Signals: {self.daily_stats['total']}")
+        logger.info(f"   Wins: {self.daily_stats['wins']}, Losses: {self.daily_stats['losses']}")
+        logger.info(f"   PnL: ₹{self.daily_stats['pnl']:.2f}")
+        logger.info("=" * 70)
+        
         self.daily_stats = {
             'total': 0, 'by_tier': {'TIER_1': 0, 'TIER_2': 0, 'TIER_3': 0},
             'by_regime': {}, 'pnl': 0, 'wins': 0, 'losses': 0
