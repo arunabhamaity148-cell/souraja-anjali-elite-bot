@@ -303,14 +303,35 @@ Auto:
             df_15m = await self.exchange_mgr.get_ohlcv(symbol, '15m', 100)
             df_1h = await self.exchange_mgr.get_ohlcv(symbol, '1h', 100)
 
-            if any(df is None or len(df) < 60 for df in [df_5m, df_15m, df_1h]):
+            # FIX: Check if any df is None
+            if df_5m is None or df_15m is None or df_1h is None:
+                logger.warning(f"{symbol}: OHLCV data is None")
+                return False
+
+            # FIX: Check if empty or too few rows
+            if len(df_5m) < 60 or len(df_15m) < 60 or len(df_1h) < 60:
+                logger.warning(f"{symbol}: Insufficient data")
+                return False
+
+            # FIX: Check for NaN/None values in close price
+            if df_5m['close'].isna().any() or df_15m['close'].isna().any() or df_1h['close'].isna().any():
+                logger.warning(f"{symbol}: NaN values in data")
                 return False
 
             ticker = await self.exchange_mgr.get_ticker(symbol)
-            if ticker:
-                spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
-                if spread > 0.002:
-                    return False
+
+            # FIX: Check ticker data
+            if ticker is None:
+                logger.warning(f"{symbol}: Ticker is None")
+                return False
+
+            if ticker.get('last') is None or ticker.get('bid') is None or ticker.get('ask') is None:
+                logger.warning(f"{symbol}: Ticker missing price data")
+                return False
+
+            spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
+            if spread > 0.002:
+                return False
 
             raw_signal = await self.signal_gen.generate_signal(symbol, df_5m)
             if not raw_signal:
@@ -322,6 +343,11 @@ Auto:
                 return False
 
             features_df = self.feature_eng.create_features(df_5m)
+
+            # FIX: Check if features_df is None or empty
+            if features_df is None or len(features_df) < 60:
+                logger.warning(f"{symbol}: Features insufficient")
+                return False
 
             exchange_data = {
                 'best_prices': await self.exchange_mgr.get_best_price(symbol),
@@ -383,6 +409,12 @@ Auto:
         while True:
             try:
                 ticker = await self.exchange_mgr.get_ticker(signal['symbol'])
+                
+                # FIX: Check ticker is not None
+                if ticker is None:
+                    await asyncio.sleep(5)
+                    continue
+                
                 current_price = ticker.get('last', 0)
 
                 if current_price == 0:
@@ -430,6 +462,9 @@ Auto:
                 await asyncio.sleep(5)
 
     def _hit_tp(self, signal, price, tp):
+        # FIX: Check if tp key exists
+        if tp not in signal:
+            return False
         return (signal['direction'] == 'LONG' and price >= signal[tp]) or \
                (signal['direction'] == 'SHORT' and price <= signal[tp])
 
