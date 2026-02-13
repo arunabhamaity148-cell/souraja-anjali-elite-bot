@@ -1,5 +1,6 @@
 """
 ARUNABHA ELITE v8.0 FINAL - PRODUCTION CONFIGURATION
+UPDATED: Fixed CHOPPY regime to allow trading
 """
 
 import os
@@ -55,6 +56,7 @@ TRADING = {
     'leverage': 15,
     'max_daily_signals': 12,
     'max_hourly_trades_per_pair': 3,
+    'daily_loss_limit': 0.03,  # 3% of balance
     'daily_loss_limit_percent': 0.03,
     'max_spread_percent': 0.002,
     'risk_per_trade_tier1': 0.01,
@@ -63,7 +65,8 @@ TRADING = {
     'atr_multiplier_sl': 1.5,
     'atr_multiplier_tp1': 2.0,
     'atr_multiplier_tp2': 3.0,
-    'atr_multiplier_tp3': 4.0
+    'atr_multiplier_tp3': 4.0,
+    'breakeven_trigger': 0.015  # Move SL to BE at 1.5% profit
 }
 
 TIER_SETTINGS = {
@@ -92,60 +95,68 @@ TIER_SETTINGS = {
         'confidence': 72,
         'expected_win_rate': '68%',
         'risk_per_trade': 0.005,
-        'max_daily': 3
+        'max_daily': 5
     }
 }
 
+# ✅ UPDATED REGIME SETTINGS - CHOPPY NOW ALLOWS TRADING
 REGIME_SETTINGS = {
     'TRENDING_BULL': {
         'enabled_filters': ['structure', 'volume', 'liquidity', 'correlation', 'funding', 'liquidation', 'mtf', 'session'],
         'min_tier': 'TIER_2',
         'max_signals': 10,
-        'strategy': 'TREND_FOLLOW'
+        'strategy': 'TREND_FOLLOW',
+        'direction_bias': None
     },
     'TRENDING_BEAR': {
         'enabled_filters': ['structure', 'volume', 'liquidity', 'correlation', 'funding', 'liquidation', 'mtf', 'session'],
         'min_tier': 'TIER_2',
         'max_signals': 10,
-        'strategy': 'TREND_FOLLOW'
+        'strategy': 'TREND_FOLLOW',
+        'direction_bias': None
     },
     'RANGING': {
-        'enabled_filters': ['structure', 'volume', 'liquidity', 'funding', 'session'],
+        'enabled_filters': ['structure', 'volume', 'liquidity', 'funding', 'mtf', 'session'],
         'min_tier': 'TIER_2',
         'max_signals': 8,
-        'strategy': 'MEAN_REVERSION'
+        'strategy': 'MEAN_REVERSION',
+        'direction_bias': None
     },
     'VOLATILE': {
-        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'session'],
+        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'mtf', 'session'],
         'min_tier': 'TIER_1',
         'max_signals': 5,
-        'strategy': 'BREAKOUT'
+        'strategy': 'BREAKOUT',
+        'direction_bias': None
     },
     'EXTREME_FEAR': {
-        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'session'],
+        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'mtf', 'session'],
         'direction_bias': 'LONG_ONLY',
         'min_tier': 'TIER_2',
         'max_signals': 6,
         'strategy': 'CONTRARIAN_LONG'
     },
     'EXTREME_GREED': {
-        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'session'],
+        'enabled_filters': ['structure', 'liquidity', 'liquidation', 'mtf', 'session'],
         'direction_bias': 'SHORT_ONLY',
         'min_tier': 'TIER_2',
         'max_signals': 6,
         'strategy': 'CONTRARIAN_SHORT'
     },
     'LOW_VOLATILITY': {
-        'enabled_filters': ['structure', 'volume', 'funding', 'session'],
+        'enabled_filters': ['structure', 'volume', 'liquidity', 'funding', 'mtf', 'session'],
         'min_tier': 'TIER_1',
         'max_signals': 4,
-        'strategy': 'SCALP_ONLY'
+        'strategy': 'SCALP_ONLY',
+        'direction_bias': None
     },
+    # ✅ FIXED: CHOPPY now allows mean reversion trading
     'CHOPPY': {
-        'enabled_filters': ['structure', 'session'],
-        'min_tier': 'TIER_1',
-        'max_signals': 2,
-        'strategy': 'NO_TRADE'
+        'enabled_filters': ['structure', 'volume', 'liquidity', 'mtf', 'session'],
+        'min_tier': 'TIER_1',           # Only best signals
+        'max_signals': 3,                # Max 3 per day in choppy
+        'strategy': 'MEAN_REVERSION',    # ✅ Changed from NO_TRADE
+        'direction_bias': None
     }
 }
 
@@ -176,4 +187,13 @@ SAFETY = {
     'max_spread_percent': 0.2,
     'emergency_stop_pnl_percent': -5,
     'max_position_size_percent': 50
+}
+
+# ✅ ADDED: Debug settings
+DEBUG = {
+    'verbose_logging': True,           # More detailed logs
+    'log_signal_attempts': True,       # Log every signal attempt
+    'log_filter_results': True,        # Log filter pass/fail
+    'log_exchange_calls': False,       # Don't spam exchange logs
+    'test_mode': False                 # False = real trading
 }
