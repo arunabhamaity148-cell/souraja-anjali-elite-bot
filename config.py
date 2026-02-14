@@ -1,6 +1,7 @@
 """
 ARUNABHA ELITE v8.3 FINAL - PRODUCTION CONFIGURATION
 24/7 Trading Mode - Sleep Hours: 1 AM - 7 AM IST
+UPDATED: Lenient TIER_3 for signal generation
 """
 
 import os
@@ -69,6 +70,7 @@ TRADING = {
     'breakeven_trigger': 0.015  # Move SL to BE at 1.5% profit
 }
 
+# ✅ UPDATED: More lenient tier requirements
 TIER_SETTINGS = {
     'TIER_1': {
         'label': '💎 DIAMOND',
@@ -81,7 +83,7 @@ TIER_SETTINGS = {
     },
     'TIER_2': {
         'label': '🥇 GOLD',
-        'min_filters': 6,
+        'min_filters': 5,  # ✅ Lowered from 6
         'max_filters': 7,
         'confidence': 82,
         'expected_win_rate': '78%',
@@ -90,16 +92,16 @@ TIER_SETTINGS = {
     },
     'TIER_3': {
         'label': '🥈 SILVER',
-        'min_filters': 3,  # ✅ Lowered from 5 to 3
-        'max_filters': 5,
-        'confidence': 70,
-        'expected_win_rate': '65%',
+        'min_filters': 2,  # ✅ Lowered from 3 to 2
+        'max_filters': 6,  # ✅ Increased max
+        'confidence': 65,  # ✅ More realistic
+        'expected_win_rate': '60%',  # ✅ More realistic
         'risk_per_trade': 0.005,
-        'max_daily': 8  # ✅ Increased from 5 to 8
+        'max_daily': 10  # ✅ Increased
     }
 }
 
-# ✅ UPDATED: Regime settings for 24/7 mode
+# REGIME SETTINGS - 24/7 mode
 REGIME_SETTINGS = {
     'TRENDING_BULL': {
         'enabled_filters': ['structure', 'volume', 'liquidity', 'correlation', 'funding', 'liquidation', 'mtf', 'session'],
@@ -150,11 +152,11 @@ REGIME_SETTINGS = {
         'strategy': 'SCALP_ONLY',
         'direction_bias': None
     },
-    # ✅ FIXED: CHOPPY now allows mean reversion trading
+    # ✅ CHOPPY: Very lenient for testing
     'CHOPPY': {
-        'enabled_filters': ['structure', 'volume', 'session'],  # ✅ Only 3 filters
-        'min_tier': 'TIER_3',  # ✅ Accept TIER_3 signals
-        'max_signals': 5,      # ✅ Increased from 3 to 5
+        'enabled_filters': ['structure', 'volume', 'session'],  # Only 3 filters
+        'min_tier': 'TIER_3',  # Accept TIER_3 (2+ filters)
+        'max_signals': 8,      # More signals allowed
         'strategy': 'MEAN_REVERSION',
         'direction_bias': None
     }
@@ -162,14 +164,14 @@ REGIME_SETTINGS = {
 
 # ✅ DEPRECATED: No longer used in 24/7 mode
 GOLDEN_HOURS = {
-    'enabled': False,  # ✅ Disabled for 24/7 trading
+    'enabled': False,
     'london_open': ('13:30', '14:30'),
     'ny_open': ('19:00', '20:30'),
     'london_close': ('21:30', '22:30'),
     'weekend_enabled': True
 }
 
-# ✅ NEW: Sleep hours configuration
+# ✅ Sleep hours configuration
 SLEEP_HOURS = {
     'enabled': True,
     'start_hour': 1,   # 1 AM IST
@@ -199,7 +201,6 @@ SAFETY = {
     'max_position_size_percent': 50
 }
 
-# ✅ Debug settings
 DEBUG = {
     'verbose_logging': True,
     'log_signal_attempts': True,
