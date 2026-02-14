@@ -1,6 +1,6 @@
 """
-ARUNABHA ELITE v8.0 FINAL - PRODUCTION CONFIGURATION
-UPDATED: Fixed CHOPPY regime to allow trading
+ARUNABHA ELITE v8.3 FINAL - PRODUCTION CONFIGURATION
+24/7 Trading Mode - Sleep Hours: 1 AM - 7 AM IST
 """
 
 import os
@@ -9,13 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_CONFIG = {
-    'name': 'ARUNABHA ELITE v8.0 FINAL',
-    'version': '8.0.0',
+    'name': 'ARUNABHA ELITE v8.3 FINAL',
+    'version': '8.3.0',
     'mode': 'LIVE',
     'timezone': 'Asia/Kolkata',
     'currency': 'INR',
     'rating': '95/100',
-    'description': 'Production-grade ML trading bot'
+    'description': 'Production-grade ML trading bot - 24/7 mode'
 }
 
 TELEGRAM = {
@@ -90,16 +90,16 @@ TIER_SETTINGS = {
     },
     'TIER_3': {
         'label': '🥈 SILVER',
-        'min_filters': 5,
+        'min_filters': 3,  # ✅ Lowered from 5 to 3
         'max_filters': 5,
-        'confidence': 72,
-        'expected_win_rate': '68%',
+        'confidence': 70,
+        'expected_win_rate': '65%',
         'risk_per_trade': 0.005,
-        'max_daily': 5
+        'max_daily': 8  # ✅ Increased from 5 to 8
     }
 }
 
-# ✅ UPDATED REGIME SETTINGS - CHOPPY NOW ALLOWS TRADING
+# ✅ UPDATED: Regime settings for 24/7 mode
 REGIME_SETTINGS = {
     'TRENDING_BULL': {
         'enabled_filters': ['structure', 'volume', 'liquidity', 'correlation', 'funding', 'liquidation', 'mtf', 'session'],
@@ -152,19 +152,29 @@ REGIME_SETTINGS = {
     },
     # ✅ FIXED: CHOPPY now allows mean reversion trading
     'CHOPPY': {
-        'enabled_filters': ['structure', 'volume', 'liquidity', 'mtf', 'session'],
-        'min_tier': 'TIER_1',           # Only best signals
-        'max_signals': 3,                # Max 3 per day in choppy
-        'strategy': 'MEAN_REVERSION',    # ✅ Changed from NO_TRADE
+        'enabled_filters': ['structure', 'volume', 'session'],  # ✅ Only 3 filters
+        'min_tier': 'TIER_3',  # ✅ Accept TIER_3 signals
+        'max_signals': 5,      # ✅ Increased from 3 to 5
+        'strategy': 'MEAN_REVERSION',
         'direction_bias': None
     }
 }
 
+# ✅ DEPRECATED: No longer used in 24/7 mode
 GOLDEN_HOURS = {
+    'enabled': False,  # ✅ Disabled for 24/7 trading
     'london_open': ('13:30', '14:30'),
     'ny_open': ('19:00', '20:30'),
     'london_close': ('21:30', '22:30'),
-    'weekend_enabled': False
+    'weekend_enabled': True
+}
+
+# ✅ NEW: Sleep hours configuration
+SLEEP_HOURS = {
+    'enabled': True,
+    'start_hour': 1,   # 1 AM IST
+    'end_hour': 7,     # 7 AM IST
+    'reason': 'Low liquidity and high volatility risk during these hours'
 }
 
 ML_CONFIG = {
@@ -189,11 +199,11 @@ SAFETY = {
     'max_position_size_percent': 50
 }
 
-# ✅ ADDED: Debug settings
+# ✅ Debug settings
 DEBUG = {
-    'verbose_logging': True,           # More detailed logs
-    'log_signal_attempts': True,       # Log every signal attempt
-    'log_filter_results': True,        # Log filter pass/fail
-    'log_exchange_calls': False,       # Don't spam exchange logs
-    'test_mode': False                 # False = real trading
+    'verbose_logging': True,
+    'log_signal_attempts': True,
+    'log_filter_results': True,
+    'log_exchange_calls': False,
+    'test_mode': False
 }
