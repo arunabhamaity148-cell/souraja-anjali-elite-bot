@@ -247,67 +247,95 @@ class ArunabhaEliteBot:
         logger.info(f"📊 Session: {signals_sent} signals sent")
     
     async def _process_symbol(self, symbol: str, settings: dict) -> bool:
-        """Process single symbol with real data"""
+        """Process single symbol with FULL detailed logging"""
         try:
             logger.info(f"🔍 Processing {symbol}...")
             
+            # Fetch data
             df_5m = await self.exchange_mgr.get_ohlcv(symbol, '5m', 100)
             df_15m = await self.exchange_mgr.get_ohlcv(symbol, '15m', 100)
             df_1h = await self.exchange_mgr.get_ohlcv(symbol, '1h', 100)
             
             if any(df is None or len(df) < 60 for df in [df_5m, df_15m, df_1h]):
+                logger.warning(f"   ❌ {symbol}: Insufficient data")
                 return False
             
+            # Check spread
             ticker = await self.exchange_mgr.get_ticker(symbol)
             if ticker:
                 spread = (ticker.get('ask', 0) - ticker.get('bid', 0)) / ticker.get('last', 1)
                 if spread > 0.002:
+                    logger.warning(f"   ❌ {symbol}: Spread too high ({spread:.4%})")
                     return False
             
+            # Generate signal
             raw_signal = await self.signal_gen.generate_signal(symbol, df_5m)
             
             if not raw_signal:
+                logger.warning(f"   ❌ {symbol}: No TA signal generated")
                 return False
             
+            logger.info(f"   ✅ {symbol}: RAW {raw_signal['direction']} @ {raw_signal['entry']}")
+            
+            # Check direction bias
             bias = settings.get('direction_bias')
             if bias and ((bias == 'LONG_ONLY' and raw_signal['direction'] != 'LONG') or
                         (bias == 'SHORT_ONLY' and raw_signal['direction'] != 'SHORT')):
+                logger.warning(f"   ❌ {symbol}: Direction bias mismatch (need {bias})")
                 return False
             
+            # Create features
             features_df = self.feature_eng.create_features(df_5m)
             
+            # Get exchange data
             exchange_data = {
                 'best_prices': await self.exchange_mgr.get_best_price(symbol),
                 'funding_rates': await self.exchange_mgr.get_funding_rates(symbol)
             }
             
+            # Apply filters
             filter_result = await self.filters.apply_all_filters(
                 symbol, raw_signal, self.current_regime, 
                 features_df, df_5m, df_15m, df_1h, exchange_data
             )
             
-            if filter_result.get('blocked'):
-                return False
-            
+            # Show detailed results
             passed = filter_result['passed']
             total = filter_result['total']
+            details = filter_result.get('details', {})
             
             logger.info(f"   📊 {symbol}: Filters {passed}/{total} passed")
             
-            tier = self.tiers.determine_tier_adaptive(
-                passed, total, settings['min_tier']
-            )
+            # Show each filter status
+            for fname, fresult in details.items():
+                status = "✅" if fresult else "❌"
+                logger.info(f"      {status} {fname}")
             
-            if not tier:
+            # Check blocked
+            if filter_result.get('blocked'):
+                reason = filter_result.get('block_reason', 'Unknown')
+                logger.warning(f"   ⛔ {symbol}: BLOCKED - {reason}")
                 return False
             
+            # Check tier
+            tier = self.tiers.determine_tier_adaptive(passed, total, settings['min_tier'])
+            
+            if not tier:
+                logger.warning(f"   ❌ {symbol}: TIER REJECTED (need {settings['min_tier']}, got {passed}/{total})")
+                return False
+            
+            logger.info(f"   🏆 {symbol}: {tier['tier']} assigned")
+            
+            # Position sizing
             position = await self.position_sizer.calculate_position_size(
                 symbol, raw_signal['entry'], raw_signal['sl'], tier['tier']
             )
             
             if not position:
+                logger.warning(f"   ❌ {symbol}: Position sizing failed")
                 return False
             
+            # Final signal
             signal = {
                 **raw_signal,
                 'tier': tier['tier'],
@@ -326,18 +354,13 @@ class ArunabhaEliteBot:
             self.daily_stats['total'] += 1
             self.daily_stats['by_tier'][tier['tier']] += 1
             
-            logger.info("=" * 70)
             logger.info(f"✅ SIGNAL SENT: {symbol} {signal['direction']}")
-            logger.info(f"   Entry: {signal['entry']}, SL: {signal['sl']}, TP1: {signal['tp1']}")
-            logger.info(f"   Tier: {signal['tier']}, Confidence: {signal['confidence']}%")
-            logger.info("=" * 70)
             
             asyncio.create_task(self._monitor_position(signal))
-            
             return True
             
         except Exception as e:
-            logger.error(f"   ❌ {symbol}: {e}")
+            logger.error(f"   ❌ {symbol}: ERROR - {str(e)}")
             return False
     
     async def _monitor_position(self, signal: dict):
