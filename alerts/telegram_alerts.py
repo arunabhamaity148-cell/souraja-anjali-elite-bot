@@ -1,11 +1,12 @@
 """
 Telegram Alerts - Human Style Messages
-With deploy success notifications
+With deploy success notifications (ONCE per deployment)
 """
 
 import logging
 from datetime import datetime
 import pytz
+import os
 from telegram import Bot
 from config import TELEGRAM, BOT_CONFIG
 
@@ -15,22 +16,33 @@ class HumanStyleAlerts:
     def __init__(self):
         self.bot_token = TELEGRAM['bot_token']
         self.chat_id = TELEGRAM['chat_id']
-        
+
         if not self.bot_token or not self.chat_id:
             logger.warning("Telegram credentials not configured")
             self.bot = None
         else:
             self.bot = Bot(token=self.bot_token)
             logger.info("✅ Telegram bot initialized")
-    
+
     async def send_startup(self):
-        """Send startup notification with detailed config"""
+        """Send startup notification - ONCE per deployment only"""
         if not self.bot:
             return
-        
+
         try:
-            from config import TRADING, SLEEP_HOURS
+            # ✅ CHECK: Already sent this deployment?
+            flag_file = "/tmp/startup_sent.flag"
             
+            if os.path.exists(flag_file):
+                logger.info("Startup already sent, skipping...")
+                return
+            
+            # Create flag file
+            with open(flag_file, 'w') as f:
+                f.write(datetime.now().isoformat())
+
+            from config import TRADING, SLEEP_HOURS
+
             startup_msg = f"""
 🚀 <b>{BOT_CONFIG['name']}</b>
 
@@ -47,7 +59,6 @@ class HumanStyleAlerts:
 ⏰ <b>Trading Hours:</b>
 • Active: <b>24/7 Mode</b>
 • Sleep: {SLEEP_HOURS['start_hour']}:00 AM - {SLEEP_HOURS['end_hour']}:00 AM IST
-• Reason: {SLEEP_HOURS['reason']}
 
 🎯 <b>Current Status:</b>
 • Mode: <b>{BOT_CONFIG['mode']}</b>
@@ -56,29 +67,24 @@ class HumanStyleAlerts:
 
 Ready to scan markets! 🔍
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=startup_msg,
                 parse_mode='HTML'
             )
-            
-            # Also send deploy success notification
-            await self.send_deploy_success()
-            
-            logger.info("✅ Startup alert sent")
-            
+
+            # ✅ Deploy success o ekbar e pathabo
+            await self._send_deploy_success_once()
+
+            logger.info("✅ Startup & Deploy alerts sent (once)")
+
         except Exception as e:
             logger.error(f"Startup alert error: {e}")
-    
-    async def send_deploy_success(self):
-        """Send deployment success notification"""
-        if not self.bot:
-            return
-        
+
+    async def _send_deploy_success_once(self):
+        """Send deploy success - internal method, called once"""
         try:
-            import os
-            
             deploy_info = f"""
 🚀 <b>DEPLOYMENT SUCCESSFUL</b>
 
@@ -89,14 +95,11 @@ Ready to scan markets! 🔍
 
 🔧 <b>Platform Info:</b>
 • Platform: Railway
-• Region: {os.getenv('RAILWAY_REGION', 'asia-southeast1')}
-• Service: {os.getenv('RAILWAY_SERVICE_NAME', 'worker')}
-• Deployment: {os.getenv('RAILWAY_DEPLOYMENT_ID', 'Unknown')[:8]}...
+• Service: Worker
 
 ⏰ <b>Active Hours:</b>
 • Trading: <b>24/7 Continuous</b>
 • Sleep Mode: 1:00 AM - 7:00 AM IST
-• Weekend: Enabled
 
 📊 <b>System Status:</b>
 • Exchanges: ✅ Connected
@@ -105,35 +108,31 @@ Ready to scan markets! 🔍
 • Risk Manager: ✅ Active
 
 🎯 <b>Bot is now monitoring markets!</b>
-
-Next: Wait for signal generation...
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=deploy_info,
                 parse_mode='HTML'
             )
-            
-            logger.info("✅ Deploy success alert sent")
-            
+
         except Exception as e:
             logger.error(f"Deploy alert error: {e}")
-    
+
     async def signal_alert(self, signal: dict):
         """Send trading signal alert"""
         if not self.bot:
             return
-        
+
         try:
             tier_emoji = {
                 'TIER_1': '💎',
                 'TIER_2': '🥇',
                 'TIER_3': '🥈'
             }
-            
+
             direction_emoji = '🟢' if signal['direction'] == 'LONG' else '🔴'
-            
+
             msg = f"""
 {tier_emoji.get(signal['tier'], '📊')} <b>{signal['tier']} SIGNAL</b>
 
@@ -162,23 +161,23 @@ Next: Wait for signal generation...
 
 <i>Trade at your own risk. This is not financial advice.</i>
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
             logger.info(f"✅ Signal alert sent: {signal['symbol']} {signal['direction']}")
-            
+
         except Exception as e:
             logger.error(f"Signal alert error: {e}")
-    
+
     async def tp_alert(self, tp_level: str, signal: dict, profit: float):
         """Send take profit hit alert"""
         if not self.bot:
             return
-        
+
         try:
             msg = f"""
 ✅ <b>TAKE PROFIT HIT!</b>
@@ -192,21 +191,21 @@ Next: Wait for signal generation...
 
 {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b, %H:%M:%S IST')}
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
         except Exception as e:
             logger.error(f"TP alert error: {e}")
-    
+
     async def sl_alert(self, signal: dict):
         """Send stop loss hit alert"""
         if not self.bot:
             return
-        
+
         try:
             msg = f"""
 ❌ <b>STOP LOSS HIT</b>
@@ -220,21 +219,21 @@ Next: Wait for signal generation...
 
 <i>Loss managed. Moving to next opportunity.</i>
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
         except Exception as e:
             logger.error(f"SL alert error: {e}")
-    
+
     async def breakeven_alert(self, signal: dict):
         """Send breakeven move alert"""
         if not self.bot:
             return
-        
+
         try:
             msg = f"""
 🔒 <b>BREAKEVEN ACTIVATED</b>
@@ -244,21 +243,21 @@ Stop Loss moved to Entry: {signal['entry']}
 
 Risk-free position! 🎯
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
         except Exception as e:
             logger.error(f"Breakeven alert error: {e}")
-    
+
     async def timeout_alert(self, signal: dict):
         """Send timeout alert"""
         if not self.bot:
             return
-        
+
         try:
             msg = f"""
 ⏱️ <b>POSITION TIMEOUT</b>
@@ -268,24 +267,24 @@ Position closed after 2 hours.
 
 {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b, %H:%M:%S IST')}
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
         except Exception as e:
             logger.error(f"Timeout alert error: {e}")
-    
+
     async def daily_summary(self, stats: dict):
         """Send daily summary"""
         if not self.bot:
             return
-        
+
         try:
             win_rate = (stats['wins'] / (stats['wins'] + stats['losses']) * 100) if (stats['wins'] + stats['losses']) > 0 else 0
-            
+
             msg = f"""
 📊 <b>DAILY SUMMARY</b>
 
@@ -304,12 +303,12 @@ Position closed after 2 hours.
 
 {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b %Y')}
             """
-            
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
                 parse_mode='HTML'
             )
-            
+
         except Exception as e:
             logger.error(f"Daily summary error: {e}")
