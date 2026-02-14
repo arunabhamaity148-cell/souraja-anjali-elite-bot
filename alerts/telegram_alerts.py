@@ -1,5 +1,5 @@
 """
-Telegram Alerts & Commands - Unified
+Telegram Alerts & Commands - Webhook Version
 """
 
 import logging
@@ -45,13 +45,28 @@ class HumanStyleAlerts:
         self.app.add_handler(CommandHandler("scan", self.cmd_scan))
         logger.info("✅ Command handlers registered")
 
-    async def start_polling(self):
-        """Start command polling"""
-        if self.app:
+    async def setup_webhook(self, webhook_url: str):
+        """Setup webhook for Railway"""
+        if not self.app:
+            return
+        
+        try:
             await self.app.initialize()
-            await self.app.start()
-            await self.app.updater.start_polling()
-            logger.info("🤖 Command polling started")
+            await self.app.bot.set_webhook(url=webhook_url)
+            logger.info(f"✅ Webhook set: {webhook_url}")
+        except Exception as e:
+            logger.error(f"Webhook setup failed: {e}")
+
+    async def process_update(self, update_data: dict):
+        """Process webhook update"""
+        if not self.app:
+            return
+        
+        try:
+            update = Update.de_json(update_data, self.app.bot)
+            await self.app.process_update(update)
+        except Exception as e:
+            logger.error(f"Process update error: {e}")
 
     # ========== COMMAND HANDLERS ==========
     
@@ -212,14 +227,12 @@ class HumanStyleAlerts:
             return
 
         try:
-            # ✅ CHECK: Already sent this deployment?
             flag_file = "/tmp/startup_sent.flag"
             
             if os.path.exists(flag_file):
                 logger.info("Startup already sent, skipping...")
                 return
             
-            # Create flag file
             with open(flag_file, 'w') as f:
                 f.write(datetime.now().isoformat())
 
@@ -256,7 +269,6 @@ Ready to scan markets! 🔍
                 parse_mode='HTML'
             )
 
-            # ✅ Deploy success o ekbar e pathabo
             await self._send_deploy_success_once()
 
             logger.info("✅ Startup & Deploy alerts sent (once)")
