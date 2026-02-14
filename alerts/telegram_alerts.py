@@ -1,28 +1,210 @@
 """
-Telegram Alerts - Human Style Messages
-With deploy success notifications (ONCE per deployment)
+Telegram Alerts & Commands - Unified
 """
 
 import logging
+import asyncio
 from datetime import datetime
 import pytz
 import os
-from telegram import Bot
-from config import TELEGRAM, BOT_CONFIG
+from telegram import Bot, Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 logger = logging.getLogger("TELEGRAM")
 
 class HumanStyleAlerts:
     def __init__(self):
+        from config import TELEGRAM, BOT_CONFIG
         self.bot_token = TELEGRAM['bot_token']
         self.chat_id = TELEGRAM['chat_id']
+        self.config = BOT_CONFIG
 
         if not self.bot_token or not self.chat_id:
             logger.warning("Telegram credentials not configured")
             self.bot = None
+            self.app = None
         else:
             self.bot = Bot(token=self.bot_token)
-            logger.info("✅ Telegram bot initialized")
+            self.app = Application.builder().token(self.bot_token).build()
+            self._setup_commands()
+            logger.info("✅ Telegram bot & commands initialized")
+
+    def _setup_commands(self):
+        """Setup command handlers"""
+        self.app.add_handler(CommandHandler("start", self.cmd_start))
+        self.app.add_handler(CommandHandler("help", self.cmd_help))
+        self.app.add_handler(CommandHandler("status", self.cmd_status))
+        self.app.add_handler(CommandHandler("balance", self.cmd_balance))
+        self.app.add_handler(CommandHandler("signals", self.cmd_signals))
+        self.app.add_handler(CommandHandler("pause", self.cmd_pause))
+        self.app.add_handler(CommandHandler("resume", self.cmd_resume))
+        self.app.add_handler(CommandHandler("stop", self.cmd_stop))
+        self.app.add_handler(CommandHandler("stats", self.cmd_stats))
+        self.app.add_handler(CommandHandler("regime", self.cmd_regime))
+        self.app.add_handler(CommandHandler("train", self.cmd_train))
+        self.app.add_handler(CommandHandler("scan", self.cmd_scan))
+        logger.info("✅ Command handlers registered")
+
+    async def start_polling(self):
+        """Start command polling"""
+        if self.app:
+            await self.app.initialize()
+            await self.app.start()
+            await self.app.updater.start_polling()
+            logger.info("🤖 Command polling started")
+
+    # ========== COMMAND HANDLERS ==========
+    
+    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start command"""
+        await update.message.reply_text(
+            f"🚀 *{self.config['name']}*\n\n"
+            f"Bot is ACTIVE and scanning markets...\n\n"
+            f"Commands:\n"
+            f"/status - Bot status\n"
+            f"/balance - Account balance\n"
+            f"/signals - Today's signals\n"
+            f"/stats - Trading stats\n"
+            f"/regime - Market regime\n"
+            f"/train - Train ML model\n"
+            f"/scan - Force scan\n"
+            f"/pause - Pause trading\n"
+            f"/resume - Resume trading\n"
+            f"/stop - Emergency stop",
+            parse_mode='Markdown'
+        )
+
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Help command"""
+        await self.cmd_start(update, context)
+
+    async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Status command"""
+        from utils.time_utils import get_ist_time
+        now = get_ist_time()
+        
+        status = "⏸️ PAUSED" if getattr(self, 'bot_ref', None) and self.bot_ref.is_paused else "🟢 ACTIVE"
+        regime = getattr(self, 'bot_ref', None) and self.bot_ref.current_regime
+        regime_str = regime.value if regime else "Unknown"
+        stats = getattr(self, 'bot_ref', None) and self.bot_ref.daily_stats or {}
+        
+        await update.message.reply_text(
+            f"📊 *Bot Status*\n\n"
+            f"Status: {status}\n"
+            f"Regime: {regime_str}\n"
+            f"Signals Today: {stats.get('total', 0)}/12\n"
+            f"Wins: {stats.get('wins', 0)}\n"
+            f"Losses: {stats.get('losses', 0)}\n"
+            f"PnL: ₹{stats.get('pnl', 0):.2f}\n\n"
+            f"⏰ {now.strftime('%d %b, %H:%M IST')}",
+            parse_mode='Markdown'
+        )
+
+    async def cmd_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Balance command"""
+        try:
+            bot_ref = getattr(self, 'bot_ref', None)
+            if bot_ref and bot_ref.exchange_mgr:
+                balance = await bot_ref.exchange_mgr.get_balance()
+                await update.message.reply_text(
+                    f"💰 *Account Balance*\n\n"
+                    f"Available: ₹{balance.get('available', 0):.2f}\n"
+                    f"Total: ₹{balance.get('total', 0):.2f}",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Exchange not connected")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def cmd_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Signals command"""
+        stats = getattr(self, 'bot_ref', None) and self.bot_ref.daily_stats or {}
+        await update.message.reply_text(
+            f"📈 *Today's Signals*\n\n"
+            f"Total: {stats.get('total', 0)}\n"
+            f"TIER 1: {stats.get('by_tier', {}).get('TIER_1', 0)}\n"
+            f"TIER 2: {stats.get('by_tier', {}).get('TIER_2', 0)}\n"
+            f"TIER 3: {stats.get('by_tier', {}).get('TIER_3', 0)}",
+            parse_mode='Markdown'
+        )
+
+    async def cmd_pause(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Pause command"""
+        bot_ref = getattr(self, 'bot_ref', None)
+        if bot_ref:
+            bot_ref.is_paused = True
+            await update.message.reply_text("⏸️ Bot PAUSED. Use /resume to continue.")
+
+    async def cmd_resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Resume command"""
+        bot_ref = getattr(self, 'bot_ref', None)
+        if bot_ref:
+            bot_ref.is_paused = False
+            await update.message.reply_text("▶️ Bot RESUMED. Trading active!")
+
+    async def cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Emergency stop"""
+        await update.message.reply_text("🛑 Emergency stop triggered!")
+        import sys
+        sys.exit(0)
+
+    async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Stats command"""
+        await self.cmd_status(update, context)
+
+    async def cmd_regime(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Regime command"""
+        bot_ref = getattr(self, 'bot_ref', None)
+        regime = bot_ref.current_regime if bot_ref else None
+        regime_str = regime.value if regime else "Unknown"
+        settings = bot_ref.adaptive_settings if bot_ref else {}
+        
+        await update.message.reply_text(
+            f"📊 *Market Regime*\n\n"
+            f"Current: {regime_str}\n"
+            f"Strategy: {settings.get('strategy', 'N/A')}\n"
+            f"Direction: {settings.get('direction_bias', 'N/A')}\n"
+            f"Max Signals: {settings.get('max_signals', 0)}",
+            parse_mode='Markdown'
+        )
+
+    async def cmd_train(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Manual ML training trigger"""
+        await update.message.reply_text("🎓 Training started... eta 5-10 min lagbe")
+        
+        try:
+            bot_ref = getattr(self, 'bot_ref', None)
+            if bot_ref and bot_ref.model_trainer:
+                success = await bot_ref.model_trainer.train_daily(bot_ref)
+                if success:
+                    await update.message.reply_text("✅ Training complete! Model ready")
+                else:
+                    await update.message.reply_text("❌ Training failed. Check logs")
+            else:
+                await update.message.reply_text("❌ Model trainer not available")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Force immediate market scan"""
+        await update.message.reply_text("🔍 Force scanning all pairs...")
+        
+        try:
+            bot_ref = getattr(self, 'bot_ref', None)
+            if bot_ref:
+                count = 0
+                for symbol in bot_ref.symbols:
+                    success = await bot_ref._process_symbol(symbol, bot_ref.adaptive_settings)
+                    if success:
+                        count += 1
+                await update.message.reply_text(f"✅ Scan complete. {count} signals found")
+            else:
+                await update.message.reply_text("❌ Bot not ready")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    # ========== ALERT METHODS ==========
 
     async def send_startup(self):
         """Send startup notification - ONCE per deployment only"""
@@ -44,7 +226,7 @@ class HumanStyleAlerts:
             from config import TRADING, SLEEP_HOURS
 
             startup_msg = f"""
-🚀 <b>{BOT_CONFIG['name']}</b>
+🚀 <b>{self.config['name']}</b>
 
 ✅ <b>Bot Started Successfully!</b>
 
@@ -61,9 +243,9 @@ class HumanStyleAlerts:
 • Sleep: {SLEEP_HOURS['start_hour']}:00 AM - {SLEEP_HOURS['end_hour']}:00 AM IST
 
 🎯 <b>Current Status:</b>
-• Mode: <b>{BOT_CONFIG['mode']}</b>
-• Version: {BOT_CONFIG['version']}
-• Rating: {BOT_CONFIG['rating']}
+• Mode: <b>{self.config['mode']}</b>
+• Version: {self.config['version']}
+• Rating: {self.config['rating']}
 
 Ready to scan markets! 🔍
             """
@@ -89,9 +271,9 @@ Ready to scan markets! 🔍
 🚀 <b>DEPLOYMENT SUCCESSFUL</b>
 
 ✅ <b>Bot Details:</b>
-• Name: {BOT_CONFIG['name']}
-• Version: {BOT_CONFIG['version']}
-• Mode: <b>{BOT_CONFIG['mode']}</b>
+• Name: {self.config['name']}
+• Version: {self.config['version']}
+• Mode: <b>{self.config['mode']}</b>
 
 🔧 <b>Platform Info:</b>
 • Platform: Railway
