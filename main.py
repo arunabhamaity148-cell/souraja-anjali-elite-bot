@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ARUNABHA ELITE v8.3 FINAL - PRODUCTION READY
-Real Money Trading Bot with Telegram Commands
+ARUNABHA ELITE v8.3 FINAL - WEBHOOK VERSION
+Real Money Trading Bot with Telegram Webhook Commands
 24/7 Trading Mode - Sleep Hours: 1 AM - 7 AM IST
 """
 
@@ -29,6 +29,9 @@ from alerts.telegram_alerts import HumanStyleAlerts
 from utils.time_utils import is_sleep_hours, get_ist_time
 from config import TELEGRAM
 
+# Webhook imports
+from aiohttp import web
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
@@ -39,7 +42,7 @@ logger = logging.getLogger("ARUNABHA_ELITE")
 class ArunabhaEliteBot:
     def __init__(self):
         logger.info("=" * 70)
-        logger.info("🚀 ARUNABHA ELITE v8.3 FINAL - REAL MONEY MODE")
+        logger.info("🚀 ARUNABHA ELITE v8.3 FINAL - WEBHOOK MODE")
         logger.info("=" * 70)
         
         # Core components
@@ -91,8 +94,12 @@ class ArunabhaEliteBot:
         }
         self.active_positions = {}
         
+        # Webhook path
+        self.webhook_path = f"/webhook/{TELEGRAM['bot_token'].split(':')[1]}"
+        
         logger.info(f"✅ {len(self.symbols)} pairs configured")
         logger.info(f"✅ Exchanges: {list(self.exchange_mgr.clients.keys())}")
+        logger.info(f"✅ Webhook path: {self.webhook_path}")
         
     def _init_exchange_manager(self):
         """Initialize with real API keys only - NO TESTNET"""
@@ -119,16 +126,88 @@ class ArunabhaEliteBot:
         return ExchangeManager(config)
     
     async def run(self):
-        """Main loop with telegram commands"""
+        """Main loop with webhook server"""
         # Send startup alerts
         await self.alerts.send_startup()
         
-        # Start telegram command polling from alerts class
-        if self.alerts.app:
-            asyncio.create_task(self.alerts.start_polling())
-            logger.info("✅ Telegram polling started")
+        # Setup webhook
+        await self._setup_webhook()
         
-        # Main trading loop
+        # Start trading loop in background
+        trading_task = asyncio.create_task(self._trading_loop())
+        
+        # Keep running
+        try:
+            await trading_task
+        except asyncio.CancelledError:
+            logger.info("🛑 Trading loop cancelled")
+    
+    async def _setup_webhook(self):
+        """Setup webhook server"""
+        try:
+            # Get Railway URL
+            railway_url = os.getenv('RAILWAY_URL', '')
+            if not railway_url:
+                # Try to construct from service info
+                service_name = os.getenv('RAILWAY_SERVICE_NAME', 'worker')
+                project_id = os.getenv('RAILWAY_PROJECT_ID', '')
+                if project_id:
+                    railway_url = f"https://{service_name}-production-{project_id}.up.railway.app"
+                else:
+                    railway_url = "https://worker-production-69d0.up.railway.app"
+            
+            full_webhook_url = f"{railway_url}{self.webhook_path}"
+            
+            # Setup telegram webhook
+            await self.alerts.setup_webhook(full_webhook_url)
+            
+            # Create aiohttp app
+            app = web.Application()
+            app.router.add_post(self.webhook_path, self._handle_webhook)
+            
+            # Health check endpoint
+            app.router.add_get('/health', self._health_check)
+            
+            runner = web.AppRunner(app)
+            await runner.setup()
+            
+            port = int(os.getenv('PORT', 8080))
+            site = web.TCPSite(runner, '0.0.0.0', port)
+            await site.start()
+            
+            logger.info(f"✅ Webhook server started on port {port}")
+            logger.info(f"✅ Webhook URL: {full_webhook_url}")
+            
+        except Exception as e:
+            logger.error(f"Webhook setup error: {e}")
+            logger.warning("⚠️ Continuing without webhook commands")
+    
+    async def _handle_webhook(self, request):
+        """Handle incoming webhook from Telegram"""
+        try:
+            if request.path != self.webhook_path:
+                return web.Response(text="Not Found", status=404)
+            
+            data = await request.json()
+            await self.alerts.process_update(data)
+            return web.Response(text="OK")
+            
+        except Exception as e:
+            logger.error(f"Webhook handler error: {e}")
+            return web.Response(text="Error", status=500)
+    
+    async def _health_check(self, request):
+        """Health check endpoint"""
+        return web.json_response({
+            "status": "ok",
+            "bot": "ARUNABHA ELITE v8.3",
+            "regime": self.current_regime.value if self.current_regime else "Unknown",
+            "signals_today": self.daily_stats['total'],
+            "paused": self.is_paused
+        })
+    
+    async def _trading_loop(self):
+        """Main trading loop"""
         while True:
             try:
                 now = get_ist_time()
