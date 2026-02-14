@@ -1,7 +1,7 @@
 """
 ARUNABHA ELITE v8.3 FINAL - PRODUCTION CONFIGURATION
 24/7 Trading Mode - Sleep Hours: 1 AM - 7 AM IST
-UPDATED: Lenient TIER_3 for signal generation
+UPDATED: Lenient TIER_3 for signal generation - TESTING MODE
 """
 
 import os
@@ -16,7 +16,7 @@ BOT_CONFIG = {
     'timezone': 'Asia/Kolkata',
     'currency': 'INR',
     'rating': '95/100',
-    'description': 'Production-grade ML trading bot - 24/7 mode'
+    'description': 'Production-grade ML trading bot - 24/7 mode - TESTING'
 }
 
 TELEGRAM = {
@@ -57,7 +57,7 @@ TRADING = {
     'leverage': 15,
     'max_daily_signals': 12,
     'max_hourly_trades_per_pair': 3,
-    'daily_loss_limit': 0.03,  # 3% of balance
+    'daily_loss_limit': 0.03,
     'daily_loss_limit_percent': 0.03,
     'max_spread_percent': 0.002,
     'risk_per_trade_tier1': 0.01,
@@ -67,10 +67,10 @@ TRADING = {
     'atr_multiplier_tp1': 2.0,
     'atr_multiplier_tp2': 3.0,
     'atr_multiplier_tp3': 4.0,
-    'breakeven_trigger': 0.015  # Move SL to BE at 1.5% profit
+    'breakeven_trigger': 0.015
 }
 
-# ✅ UPDATED: More lenient tier requirements
+# ✅ UPDATED: Lenient tier requirements for TESTING
 TIER_SETTINGS = {
     'TIER_1': {
         'label': '💎 DIAMOND',
@@ -83,7 +83,7 @@ TIER_SETTINGS = {
     },
     'TIER_2': {
         'label': '🥇 GOLD',
-        'min_filters': 5,  # ✅ Lowered from 6
+        'min_filters': 5,
         'max_filters': 7,
         'confidence': 82,
         'expected_win_rate': '78%',
@@ -94,14 +94,14 @@ TIER_SETTINGS = {
         'label': '🥈 SILVER',
         'min_filters': 2,  # ✅ Lowered from 3 to 2
         'max_filters': 6,  # ✅ Increased max
-        'confidence': 65,  # ✅ More realistic
-        'expected_win_rate': '60%',  # ✅ More realistic
+        'confidence': 60,  # ✅ Lowered for more signals
+        'expected_win_rate': '55%',  # ✅ Realistic for testing
         'risk_per_trade': 0.005,
-        'max_daily': 10  # ✅ Increased
+        'max_daily': 10  # ✅ Increased for testing
     }
 }
 
-# REGIME SETTINGS - 24/7 mode
+# ✅ UPDATED: Very lenient regime settings for TESTING
 REGIME_SETTINGS = {
     'TRENDING_BULL': {
         'enabled_filters': ['structure', 'volume', 'liquidity', 'correlation', 'funding', 'liquidation', 'mtf', 'session'],
@@ -152,17 +152,17 @@ REGIME_SETTINGS = {
         'strategy': 'SCALP_ONLY',
         'direction_bias': None
     },
-    # ✅ CHOPPY: Very lenient for testing
+    # ✅ CHOPPY: Very lenient for TESTING - only 3 filters, TIER_3 accepted
     'CHOPPY': {
-        'enabled_filters': ['structure', 'volume', 'session'],  # Only 3 filters
-        'min_tier': 'TIER_3',  # Accept TIER_3 (2+ filters)
-        'max_signals': 8,      # More signals allowed
+        'enabled_filters': ['structure', 'volume', 'session'],  # Only 3 critical filters
+        'min_tier': 'TIER_3',  # ✅ Accept TIER_3 (2+ filters passed)
+        'max_signals': 8,      # ✅ More signals allowed
         'strategy': 'MEAN_REVERSION',
         'direction_bias': None
     }
 }
 
-# ✅ DEPRECATED: No longer used in 24/7 mode
+# DEPRECATED: No longer used in 24/7 mode
 GOLDEN_HOURS = {
     'enabled': False,
     'london_open': ('13:30', '14:30'),
@@ -171,18 +171,18 @@ GOLDEN_HOURS = {
     'weekend_enabled': True
 }
 
-# ✅ Sleep hours configuration
+# Sleep hours configuration
 SLEEP_HOURS = {
     'enabled': True,
-    'start_hour': 1,   # 1 AM IST
-    'end_hour': 7,     # 7 AM IST
+    'start_hour': 1,
+    'end_hour': 7,
     'reason': 'Low liquidity and high volatility risk during these hours'
 }
 
 ML_CONFIG = {
     'model_type': 'random_forest',
     'sequence_length': 60,
-    'prediction_threshold': 0.65,
+    'prediction_threshold': 0.60,  # ✅ Lowered from 0.65 for more signals
     'retrain_interval_hours': 24,
     'min_training_samples': 1000,
     'model_path': 'models/',
@@ -201,10 +201,11 @@ SAFETY = {
     'max_position_size_percent': 50
 }
 
+# ✅ UPDATED: Debug mode for testing
 DEBUG = {
     'verbose_logging': True,
     'log_signal_attempts': True,
     'log_filter_results': True,
-    'log_exchange_calls': False,
+    'log_exchange_calls': True,  # ✅ Enabled for testing
     'test_mode': False
 }
