@@ -1,113 +1,315 @@
 """
-Human-Style Telegram Alerts
+Telegram Alerts - Human Style Messages
+With deploy success notifications
 """
 
 import logging
-import random
+from datetime import datetime
+import pytz
 from telegram import Bot
-from config import TELEGRAM, TIER_SETTINGS
+from config import TELEGRAM, BOT_CONFIG
 
-logger = logging.getLogger("ALERTS")
+logger = logging.getLogger("TELEGRAM")
 
 class HumanStyleAlerts:
     def __init__(self):
-        self.bot = Bot(token=TELEGRAM['bot_token'])
+        self.bot_token = TELEGRAM['bot_token']
         self.chat_id = TELEGRAM['chat_id']
-        self.signal_count = 0
         
+        if not self.bot_token or not self.chat_id:
+            logger.warning("Telegram credentials not configured")
+            self.bot = None
+        else:
+            self.bot = Bot(token=self.bot_token)
+            logger.info("✅ Telegram bot initialized")
+    
     async def send_startup(self):
-        msg = """
-🚀 *ARUNABHA ELITE v8.0 ML FINAL*
-
-✅ 10 Filters (8+2 ML)
-✅ Auto Regime Detection
-✅ 50+ Features
-✅ Daily Auto-Train
-✅ 92/100 Rating
-
-Bot ready! 💪
-        """
-        await self._send(msg)
-    
-    async def regime_alert(self, regime, settings):
-        emoji_map = {
-            'TRENDING_BULL': '📈', 'TRENDING_BEAR': '📉',
-            'RANGING': '↔️', 'VOLATILE': '⚡',
-            'EXTREME_FEAR': '😱', 'EXTREME_GREED': '🤑',
-            'LOW_VOLATILITY': '😴', 'CHOPPY': '🌊'
-        }
-        emoji = emoji_map.get(regime.value, '⚠️')
+        """Send startup notification with detailed config"""
+        if not self.bot:
+            return
         
-        msg = f"""
-{emoji} *REGIME: {regime.value}*
-
-Strategy: {settings['strategy']}
-Max Signals: {settings['max_signals']}
-Direction: {settings['direction_bias'] or 'Both'}
-Min Tier: {settings['min_tier']}
-
-Bot auto-adjusted! 💪
-        """
-        await self._send(msg)
-    
-    async def signal_alert(self, signal):
-        self.signal_count += 1
-        emoji = '🚀' if signal['direction'] == 'LONG' else '🔴'
-        tier_cfg = TIER_SETTINGS[signal['tier']]
-        
-        msg = f"""
-{emoji} *#{self.signal_count}* {tier_cfg['label']}
-*{signal['symbol']} {signal['direction']}*
-
-Regime: {signal['regime']}
-Confidence: {signal['confidence']}%
-Win Rate: {signal['win_rate']}
-Filters: {signal['filters_passed']}
-ML Score: {signal.get('ml_score', 0)}
-
-🎯 *ENTRY:* `{signal['entry']}`
-🛑 *SL:* `{signal['sl']}`
-✅ *TP1:* `{signal['tp1']}`
-✅ *TP2:* `{signal['tp2']}`
-✅ *TP3:* `{signal['tp3']}`
-
-Hold: {signal.get('ml_hold_time', 60)}min | Leverage: 15x
-
-{random.choice([
-    "এইটা win করবে, trust me 💪",
-    "Smart Money আমাদের সাথে 🐋",
-    "Top 1% setup, miss করিস না 🔥",
-    "আমি বলি এইটা win 💯"
-])}
-        """
-        await self._send(msg)
-    
-    async def tp_alert(self, level, signal, profit):
-        msgs = {
-            'tp1': f"✅ *TP1!* +₹{profit}\nSL breakeven করে দাও! 💪",
-            'tp2': f"🎯 *TP2!* +₹{profit}\nPartial close করো 🚀",
-            'tp3': f"🔥 *TP3!* +₹{profit}\nFull close, king! 👑"
-        }
-        await self._send(msgs.get(level, "TP hit!"))
-    
-    async def sl_alert(self, signal):
-        await self._send(f"😔 *SL* - {signal['symbol']}\nকাল ঠিক হবে 💪")
-    
-    async def breakeven_alert(self, action):
-        await self._send(f"🛡️ {action['message']}")
-    
-    async def timeout_alert(self, signal):
-        await self._send(f"⏰ *Timeout* - {signal['symbol']}")
-    
-    async def skip_alert(self, reason):
-        await self._send(f"⏸️ *Skip*: {reason}")
-    
-    async def _send(self, msg):
         try:
+            from config import TRADING, SLEEP_HOURS
+            
+            startup_msg = f"""
+🚀 <b>{BOT_CONFIG['name']}</b>
+
+✅ <b>Bot Started Successfully!</b>
+
+⏰ <b>Time:</b> {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b %Y, %H:%M:%S IST')}
+
+📊 <b>Configuration:</b>
+• Symbols: {len(TRADING['symbols'])} pairs
+• Max Daily Signals: {TRADING['max_daily_signals']}
+• Leverage: {TRADING['leverage']}x
+• Risk per Trade: {TRADING['risk_per_trade_tier1']*100}% (TIER 1)
+
+⏰ <b>Trading Hours:</b>
+• Active: <b>24/7 Mode</b>
+• Sleep: {SLEEP_HOURS['start_hour']}:00 AM - {SLEEP_HOURS['end_hour']}:00 AM IST
+• Reason: {SLEEP_HOURS['reason']}
+
+🎯 <b>Current Status:</b>
+• Mode: <b>{BOT_CONFIG['mode']}</b>
+• Version: {BOT_CONFIG['version']}
+• Rating: {BOT_CONFIG['rating']}
+
+Ready to scan markets! 🔍
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=startup_msg,
+                parse_mode='HTML'
+            )
+            
+            # Also send deploy success notification
+            await self.send_deploy_success()
+            
+            logger.info("✅ Startup alert sent")
+            
+        except Exception as e:
+            logger.error(f"Startup alert error: {e}")
+    
+    async def send_deploy_success(self):
+        """Send deployment success notification"""
+        if not self.bot:
+            return
+        
+        try:
+            import os
+            
+            deploy_info = f"""
+🚀 <b>DEPLOYMENT SUCCESSFUL</b>
+
+✅ <b>Bot Details:</b>
+• Name: {BOT_CONFIG['name']}
+• Version: {BOT_CONFIG['version']}
+• Mode: <b>{BOT_CONFIG['mode']}</b>
+
+🔧 <b>Platform Info:</b>
+• Platform: Railway
+• Region: {os.getenv('RAILWAY_REGION', 'asia-southeast1')}
+• Service: {os.getenv('RAILWAY_SERVICE_NAME', 'worker')}
+• Deployment: {os.getenv('RAILWAY_DEPLOYMENT_ID', 'Unknown')[:8]}...
+
+⏰ <b>Active Hours:</b>
+• Trading: <b>24/7 Continuous</b>
+• Sleep Mode: 1:00 AM - 7:00 AM IST
+• Weekend: Enabled
+
+📊 <b>System Status:</b>
+• Exchanges: ✅ Connected
+• ML Model: ✅ Ready
+• Telegram: ✅ Active
+• Risk Manager: ✅ Active
+
+🎯 <b>Bot is now monitoring markets!</b>
+
+Next: Wait for signal generation...
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=deploy_info,
+                parse_mode='HTML'
+            )
+            
+            logger.info("✅ Deploy success alert sent")
+            
+        except Exception as e:
+            logger.error(f"Deploy alert error: {e}")
+    
+    async def signal_alert(self, signal: dict):
+        """Send trading signal alert"""
+        if not self.bot:
+            return
+        
+        try:
+            tier_emoji = {
+                'TIER_1': '💎',
+                'TIER_2': '🥇',
+                'TIER_3': '🥈'
+            }
+            
+            direction_emoji = '🟢' if signal['direction'] == 'LONG' else '🔴'
+            
+            msg = f"""
+{tier_emoji.get(signal['tier'], '📊')} <b>{signal['tier']} SIGNAL</b>
+
+{direction_emoji} <b>{signal['direction']} {signal['symbol']}</b>
+
+📊 <b>Entry Details:</b>
+• Entry: <b>{signal['entry']}</b>
+• Stop Loss: {signal['sl']}
+• Take Profit 1: {signal['tp1']}
+• Take Profit 2: {signal['tp2']}
+• Take Profit 3: {signal['tp3']}
+
+📈 <b>Analysis:</b>
+• Confidence: {signal['confidence']}%
+• Win Rate: {signal['win_rate']}
+• RR Ratio: {signal['rr_ratio']}
+• Filters: {signal['filters_passed']}
+
+💰 <b>Position:</b>
+• Size: {signal['position_size']}
+• Risk: ₹{signal['risk_amount']}
+• Margin: ₹{signal['margin_required']}
+• Balance: ₹{signal['balance']}
+
+⏰ {datetime.fromisoformat(signal['timestamp']).strftime('%d %b, %H:%M:%S IST')}
+
+<i>Trade at your own risk. This is not financial advice.</i>
+            """
+            
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=msg,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
+            
+            logger.info(f"✅ Signal alert sent: {signal['symbol']} {signal['direction']}")
+            
         except Exception as e:
-            logger.error(f"Telegram error: {e}")
+            logger.error(f"Signal alert error: {e}")
+    
+    async def tp_alert(self, tp_level: str, signal: dict, profit: float):
+        """Send take profit hit alert"""
+        if not self.bot:
+            return
+        
+        try:
+            msg = f"""
+✅ <b>TAKE PROFIT HIT!</b>
+
+🎯 {signal['symbol']} {signal['direction']}
+💰 <b>{tp_level.upper()} Hit</b>
+
+💵 Profit: <b>₹{profit:.2f}</b>
+📊 Entry: {signal['entry']}
+🎯 Target: {signal[tp_level.lower()]}
+
+{datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b, %H:%M:%S IST')}
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=msg,
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"TP alert error: {e}")
+    
+    async def sl_alert(self, signal: dict):
+        """Send stop loss hit alert"""
+        if not self.bot:
+            return
+        
+        try:
+            msg = f"""
+❌ <b>STOP LOSS HIT</b>
+
+{signal['symbol']} {signal['direction']}
+
+🛑 SL: {signal['sl']}
+📊 Entry: {signal['entry']}
+
+{datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b, %H:%M:%S IST')}
+
+<i>Loss managed. Moving to next opportunity.</i>
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=msg,
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"SL alert error: {e}")
+    
+    async def breakeven_alert(self, signal: dict):
+        """Send breakeven move alert"""
+        if not self.bot:
+            return
+        
+        try:
+            msg = f"""
+🔒 <b>BREAKEVEN ACTIVATED</b>
+
+{signal['symbol']}
+Stop Loss moved to Entry: {signal['entry']}
+
+Risk-free position! 🎯
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=msg,
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"Breakeven alert error: {e}")
+    
+    async def timeout_alert(self, signal: dict):
+        """Send timeout alert"""
+        if not self.bot:
+            return
+        
+        try:
+            msg = f"""
+⏱️ <b>POSITION TIMEOUT</b>
+
+{signal['symbol']}
+Position closed after 2 hours.
+
+{datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b, %H:%M:%S IST')}
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=msg,
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"Timeout alert error: {e}")
+    
+    async def daily_summary(self, stats: dict):
+        """Send daily summary"""
+        if not self.bot:
+            return
+        
+        try:
+            win_rate = (stats['wins'] / (stats['wins'] + stats['losses']) * 100) if (stats['wins'] + stats['losses']) > 0 else 0
+            
+            msg = f"""
+📊 <b>DAILY SUMMARY</b>
+
+📈 <b>Performance:</b>
+• Total Signals: {stats['total']}
+• Wins: {stats['wins']} ✅
+• Losses: {stats['losses']} ❌
+• Win Rate: {win_rate:.1f}%
+
+💰 <b>PnL:</b> ₹{stats['pnl']:.2f}
+
+🏆 <b>By Tier:</b>
+• TIER 1: {stats['by_tier']['TIER_1']}
+• TIER 2: {stats['by_tier']['TIER_2']}
+• TIER 3: {stats['by_tier']['TIER_3']}
+
+{datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d %b %Y')}
+            """
+            
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=msg,
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"Daily summary error: {e}")
